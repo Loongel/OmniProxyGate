@@ -92,8 +92,8 @@ Examples:
 | SNI routes | `PUT /api/sni-routes/{id}` | replace one SNI route; `sni` may contain one or more comma/newline separated domains |
 | SNI routes | `DELETE /api/sni-routes/{id}` | delete one SNI route |
 | HTTP routes | `GET /api/http-routes` | list HTTP/gRPC routes |
-| HTTP routes | `POST /api/http-routes` | create route |
-| HTTP routes | `PUT /api/http-routes/{id}` | replace route |
+| HTTP routes | `POST /api/http-routes` | create route; `host`, `path`, and `alpn` can be used in any 1-3 field combination |
+| HTTP routes | `PUT /api/http-routes/{id}` | replace route; `match_type` is derived from `host`/`path`/`alpn` except default fallback |
 | HTTP routes | `DELETE /api/http-routes/{id}` | delete route |
 | Config | `GET /api/config/export` | export full routing bundle |
 | Config | `POST /api/config/import` | replace routing bundle |
@@ -109,7 +109,7 @@ Examples:
 omni list backends
 omni create backend --name npm --host npm --port 443 --protocol http --scheme https
 omni create sni --name npm-public --sni 'example.com,*.example.com' --action tls_passthrough --backend npm
-omni create http --name xui-grpc --host grpc.example.com --path /grpc --backend xui-grpc --backend-type grpc
+omni create http --name xui-grpc --host grpc.example.com --path /grpc --alpn h2 --backend xui-grpc --backend-type grpc
 omni preview --section all
 omni apply --yes
 ```

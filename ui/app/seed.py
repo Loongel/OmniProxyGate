@@ -31,6 +31,10 @@ def _ensure_schema_columns() -> None:
         columns = {column["name"] for column in inspector.get_columns("backends")}
         if "send_proxy_protocol" not in columns:
             statements.append("ALTER TABLE backends ADD COLUMN send_proxy_protocol BOOLEAN DEFAULT 0 NOT NULL")
+    if "http_routes" in tables:
+        columns = {column["name"] for column in inspector.get_columns("http_routes")}
+        if "alpn" not in columns:
+            statements.append("ALTER TABLE http_routes ADD COLUMN alpn VARCHAR(128)")
     if not statements:
         return
     with engine.begin() as conn:

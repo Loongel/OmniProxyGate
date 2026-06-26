@@ -174,13 +174,13 @@ function alpnValues(value) {
 }
 
 function syncAlpnChips(form) {
-  if (!form || formId(form) !== 'sniForm') return;
+  if (!form || !form.elements.alpn) return;
   const values = new Set(alpnValues(form.elements.alpn.value));
   form.querySelectorAll('[data-alpn]').forEach(btn => btn.classList.toggle('selected', values.has(btn.dataset.alpn)));
 }
 
 function syncAlpnInput(form) {
-  if (!form || formId(form) !== 'sniForm') return;
+  if (!form || !form.elements.alpn) return;
   const values = Array.from(form.querySelectorAll('[data-alpn].selected')).map(btn => btn.dataset.alpn);
   form.elements.alpn.value = values.join(',');
 }
@@ -232,8 +232,11 @@ function resetForm(id) {
   if (id === 'httpForm') {
     form.elements.enabled.checked = true;
     form.elements.priority.value = 100;
-    form.elements.path.value = '/';
+    form.elements.path.value = '';
+    form.elements.alpn.value = '';
+    form.elements.match_type.value = 'host_path';
     form.elements.extra_options.value = '{}';
+    syncAlpnChips(form);
   }
   refreshListEditors(form);
   updateConditionalFields(id);
@@ -357,9 +360,19 @@ function renderTableByTarget(target) {
   } else if (target === 'httpTable') {
     renderTable('httpTable', [
       { key: 'id', label: 'ID' }, { key: 'enabled', label: '启用', render: r => badge(r.enabled ? '启用' : '禁用', r.enabled ? 'success' : 'neutral') }, { key: 'priority', label: '优先级' }, { key: 'host', label: 'Host' },
-      { key: 'path', label: 'Path' }, { key: 'match_type', label: '匹配' }, { key: 'backend_type', label: '后端类型' }, { key: 'http_mode', label: 'HTTP 模式' }, { key: 'backend_id', label: '目标后端', render: r => backendSummary(r.backend_id) }
+      { key: 'path', label: 'Path', render: r => escapeHtml(r.path || '全部') }, { key: 'alpn', label: 'ALPN', render: r => r.alpn ? `<div class="chip-list">${alpnValues(r.alpn).map(v => `<span class="mini-chip accent">${escapeHtml(v)}</span>`).join('')}</div>` : '<span class="muted-text">不限</span>' },
+      { key: 'match_type', label: '匹配', render: r => httpMatchSummary(r), text: r => [r.host, r.path, r.alpn, r.match_type].filter(Boolean).join(' ') }, { key: 'backend_type', label: '后端类型' }, { key: 'http_mode', label: 'HTTP 模式' }, { key: 'backend_id', label: '目标后端', render: r => backendSummary(r.backend_id) }
     ], state.http, 'http');
   }
+}
+
+function httpMatchSummary(route) {
+  if (route.is_default_fallback || route.match_type === 'default') return badge('默认 fallback', 'warning');
+  const parts = [];
+  if (route.host) parts.push('Host');
+  if (route.path) parts.push('Path');
+  if (route.alpn) parts.push('ALPN');
+  return `<div class="chip-list">${(parts.length ? parts : ['未设置']).map(v => `<span class="mini-chip">${escapeHtml(v)}</span>`).join('')}</div>`;
 }
 
 function backendById(id) {
@@ -419,6 +432,11 @@ function updateConditionalFields(formId) {
   }
   if (formId === 'httpForm') {
     const isGrpc = form.elements.backend_type.value === 'grpc';
+    const parts = [];
+    if (form.elements.host.value.trim()) parts.push('host');
+    if (form.elements.path.value.trim()) parts.push('path');
+    if (form.elements.alpn.value.trim()) parts.push('alpn');
+    form.elements.match_type.value = form.elements.is_default_fallback.checked ? 'default' : (parts.join('_') || 'host_path');
     const modeField = form.querySelector('[name="http_mode"]')?.closest('label');
     if (modeField) {
       modeField.classList.toggle('field-hidden', isGrpc);
@@ -866,7 +884,12 @@ function initEvents() {
   });
   document.body.addEventListener('click', (ev) => {
     const chip = ev.target.closest('[data-alpn]');
-    if (chip) { chip.classList.toggle('selected'); syncAlpnInput(document.getElementById('sniForm')); }
+    if (chip) {
+      chip.classList.toggle('selected');
+      const form = chip.closest('form');
+      syncAlpnInput(form);
+      updateConditionalFields(formId(form));
+    }
   });
   $('#previewBtn').addEventListener('click', () => refreshPreview(true));
   $('#applyBtn').addEventListener('click', applyConfig);

@@ -392,7 +392,7 @@ def _export_bundle(db: Session) -> dict:
         ],
         "http_routes": [
             _dump_item(item, [
-                "id", "name", "enabled", "host", "path", "match_type", "priority", "backend_type", "http_mode",
+                "id", "name", "enabled", "host", "path", "alpn", "match_type", "priority", "backend_type", "http_mode",
                 "backend_id", "is_default_fallback", "extra_options",
             ])
             for item in db.execute(select(HttpRoute).order_by(HttpRoute.priority.asc(), HttpRoute.id.asc())).scalars()

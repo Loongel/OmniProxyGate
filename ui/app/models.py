@@ -111,6 +111,7 @@ class HttpRoute(Base, TimestampMixin):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     host: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     path: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    alpn: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     match_type: Mapped[str] = mapped_column(String(16), default="host_path")
     priority: Mapped[int] = mapped_column(Integer, default=100)
     backend_type: Mapped[str] = mapped_column(String(16), default="http")

@@ -8,6 +8,7 @@ _DOMAIN_RE = re.compile(r"^(\*\.)?(?=.{1,253}$)([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}
 _HOST_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,253}$")
 _BACKEND_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 _PATH_RE = re.compile(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$")
+_ALPN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+:-]{0,31}$")
 _SAFE_FILE_RE = re.compile(r"^/[A-Za-z0-9._~+@%/=-]+$")
 
 LISTEN_ADDRESS_MODES = {"unified", "split", "ipv4_only", "ipv6_only"}
@@ -15,7 +16,7 @@ SNI_ACTIONS = {"http_termination", "tls_passthrough", "reject"}
 BACKEND_PROTOCOLS = {"http", "https", "grpc", "grpcs", "h2c", "tcp_tls"}
 BACKEND_TYPES = {"http", "grpc"}
 HTTP_MODES = {"normal", "websocket", "xhttp_stream"}
-MATCH_TYPES = {"host", "path", "host_path", "default"}
+MATCH_TYPES = {"host", "path", "alpn", "host_path", "host_alpn", "path_alpn", "host_path_alpn", "default"}
 
 
 class ValidationError(ValueError):
@@ -71,6 +72,27 @@ def validate_domain_list(value: str | None, field: str = "domain") -> str:
         assert normalized is not None
         if normalized not in checked:
             checked.append(normalized)
+    return ",".join(checked)
+
+
+def split_alpn_list(value: str | None) -> list[str]:
+    if value is None:
+        return []
+    return [part.strip() for part in re.split(r"[\s,，;；]+", value) if part.strip()]
+
+
+def validate_alpn_list(value: str | None, field: str = "alpn", allow_empty: bool = True) -> str | None:
+    values = split_alpn_list(value)
+    if not values:
+        if allow_empty:
+            return None
+        raise ValidationError(f"{field} is required")
+    checked: list[str] = []
+    for item in values:
+        if not _ALPN_RE.match(item):
+            raise ValidationError(f"{field} contains unsupported protocol value: {item}")
+        if item not in checked:
+            checked.append(item)
     return ",".join(checked)
 
 

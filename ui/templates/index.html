@@ -209,14 +209,16 @@
             <input name="id" type="hidden" />
             <label>名称 <input name="name" required /></label>
             <label>Host <input name="host" placeholder="proxy.example.com" /></label>
-            <label>Path <input name="path" value="/" /></label>
-            <label>匹配方式
-              <select name="match_type">
-                <option value="host_path">Host + Path</option>
-                <option value="host">Host</option>
-                <option value="path">Path</option>
-                <option value="default">默认 fallback</option>
-              </select>
+            <label>Path <input name="path" placeholder="/grpc 或留空表示全部路径" /></label>
+            <input name="match_type" type="hidden" value="host_path" />
+            <label class="wide">ALPN
+              <input name="alpn" type="hidden" />
+              <div class="chip-options" data-alpn-options>
+                <button type="button" class="chip" data-alpn="h2">h2</button>
+                <button type="button" class="chip" data-alpn="http/1.1">http/1.1</button>
+                <button type="button" class="chip" data-alpn="h3">h3</button>
+              </div>
+              <span class="field-help">Host、Path、ALPN 可任意组合；至少填写其中一个。ALPN 不选表示不限。</span>
             </label>
             <label>优先级 <input name="priority" type="number" value="100" /></label>
             <label>后端类型

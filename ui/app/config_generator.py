@@ -76,6 +76,18 @@ def _alpn_to_regex(alpn: str) -> str:
     return "(?:" + "|".join(parts) + ")"
 
 
+def _http_route_has_alpn(route: Any) -> bool:
+    return bool((_get(route, "alpn", None) or "").strip())
+
+
+def _http_route_is_default(route: Any) -> bool:
+    return _get(route, "match_type") == "default" or _truthy(route, "is_default_fallback", False)
+
+
+def _http_route_specificity(route: Any) -> int:
+    return int(bool(_get(route, "host", None))) + int(bool(_get(route, "path", None))) + int(_http_route_has_alpn(route))
+
+
 def _nginx_server_name(domain: Optional[str]) -> str:
     return domain or "_"
 
@@ -373,6 +385,7 @@ class NginxConfigGenerator:
 
     def _all_server_names(self) -> list[str]:
         names: list[str] = []
+        needs_catch_all = False
         for cert in self.certificates:
             for domain in _split_route_values(_get(cert, "domain", None)):
                 if domain not in names:
@@ -381,6 +394,10 @@ class NginxConfigGenerator:
             host = _get(route, "host", None)
             if host and host not in names:
                 names.append(host)
+            if not host or _http_route_is_default(route):
+                needs_catch_all = True
+        if needs_catch_all and "_" not in names:
+            names.append("_")
         if not names:
             names = ["_"]
         return names
@@ -398,19 +415,16 @@ class NginxConfigGenerator:
         ])
 
     def _route_applies_to_server(self, route: Any, server_name: str) -> bool:
-        match_type = _get(route, "match_type", "host_path")
         route_host = _get(route, "host", None)
-        if match_type == "default" or _truthy(route, "is_default_fallback", False):
+        if _http_route_is_default(route):
             return True
-        if match_type == "path":
+        if not route_host:
             return True
-        if server_name == "_":
-            return not route_host
-        if route_host:
+        if server_name != "_":
             return _domain_list_matches(route_host, server_name) or route_host == server_name
         return False
 
-    def _render_location(self, route: Any) -> list[str]:
+    def _render_location(self, route: Any, location_name: Optional[str] = None) -> list[str]:
         backend = self.backends.get(_get(route, "backend_id"))
         if backend is None:
             return ["    # Skipped route with missing backend."]
@@ -424,9 +438,10 @@ class NginxConfigGenerator:
         connect_timeout = int(_get(backend, "connect_timeout", 60) or 60)
         preserve_host = _truthy(backend, "preserve_host", True)
         forward_real_ip = _truthy(backend, "forward_real_ip", True)
+        location = f"@{location_name}" if location_name else path
         lines = [
             f"    # Route: {route_name}",
-            f"    location {path} {{",
+            f"    location {location} {{",
             f"        set ${backend_var} {_quote_nginx(backend_addr)};",
         ]
         if backend_type == "grpc":
@@ -486,23 +501,80 @@ class NginxConfigGenerator:
         lines.extend(["    }", ""])
         return lines
 
+    def _route_order_key(self, route: Any) -> tuple[int, int, int, int, int]:
+        return (
+            1 if _http_route_is_default(route) else 0,
+            _get(route, "priority", 100),
+            -_http_route_specificity(route),
+            -len(_get(route, "path", "") or "/"),
+            _get(route, "id", 0),
+        )
+
+    def _alpn_if_conditions(self, route: Any) -> list[str]:
+        values = _split_route_values((_get(route, "alpn", None) or "").strip())
+        if not values:
+            return []
+        conditions = [f'$ssl_alpn_protocol ~* "^{_alpn_to_regex(",".join(values))}$"']
+        http3_values = [value for value in values if value.lower().startswith("h3")]
+        if http3_values:
+            conditions.append(f'$http3 ~* "^{_alpn_to_regex(",".join(http3_values))}$"')
+        return conditions
+
+    def _route_location_name(self, server_name: str, route: Any) -> str:
+        return f"nggm_http_{_safe_name(server_name, 'server')}_{_safe_name(_get(route, 'id', _get(route, 'name', 'route')), 'route')}"
+
+    def _render_dispatcher_group(self, server_name: str, path: str, routes: list[Any], code_start: int) -> tuple[list[str], int]:
+        lines: list[str] = []
+        route_targets: list[tuple[Any, int, str]] = []
+        next_code = code_start
+        for route in routes:
+            if next_code > 599:
+                self.warnings.append(f"Too many ALPN-dispatched HTTP routes for {server_name}{path}; skipped route {_get(route, 'name', route)}")
+                continue
+            location_name = self._route_location_name(server_name, route)
+            route_targets.append((route, next_code, location_name))
+            lines.append(f"    error_page {next_code} = @{location_name};")
+            next_code += 1
+        lines.extend([
+            f"    # Dispatcher: {server_name} {path} by ALPN",
+            f"    location {path} {{",
+        ])
+        for route, code, _location_name in route_targets:
+            conditions = self._alpn_if_conditions(route)
+            if conditions:
+                for condition in conditions:
+                    lines.append(f"        if ({condition}) {{ return {code}; }}")
+            else:
+                lines.append(f"        return {code};")
+                break
+        lines.extend([
+            "        return 404;",
+            "    }",
+            "",
+        ])
+        for route, _code, location_name in route_targets:
+            lines.extend(self._render_location(route, location_name=location_name))
+        return lines, next_code
+
     def _render_locations_for_server(self, server_name: str) -> str:
         candidates = [r for r in self.http_routes if self._route_applies_to_server(r, server_name)]
-        candidates.sort(key=lambda r: (
-            1 if (_get(r, "match_type") == "default" or _truthy(r, "is_default_fallback", False)) else 0,
-            _get(r, "priority", 100),
-            -len(_get(r, "path", "") or "/"),
-            _get(r, "id", 0),
-        ))
-        locations: list[str] = []
-        seen_paths: set[str] = set()
+        candidates.sort(key=self._route_order_key)
+        path_groups: dict[str, list[Any]] = {}
         for route in candidates:
             path = _get(route, "path", None) or "/"
+            path_groups.setdefault(path, []).append(route)
+        locations: list[str] = []
+        seen_paths: set[str] = set()
+        dispatch_code = 470
+        for path, routes in path_groups.items():
             if path in seen_paths:
-                self.warnings.append(f"Duplicate location {path} for server {server_name}; skipped route {_get(route, 'name', route)}")
                 continue
             seen_paths.add(path)
-            locations.extend(self._render_location(route))
+            if len(routes) > 1 or _http_route_has_alpn(routes[0]):
+                rendered, dispatch_code = self._render_dispatcher_group(server_name, path, routes, dispatch_code)
+                locations.extend(rendered)
+            else:
+                locations.extend(self._render_location(routes[0]))
         if "/" not in seen_paths:
             locations.extend([
                 "    location / {",

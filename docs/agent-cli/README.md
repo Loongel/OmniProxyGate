@@ -109,7 +109,7 @@ Do not run `import` or `apply` before exporting a backup.
 | Read item by ID | `omni get backends 3` |
 | Create backend | `omni create backend ...` |
 | Create one/many SNI domains in one route | `omni create sni --sni a,b,c ...` |
-| Create HTTP/gRPC route | `omni create http ...` |
+| Create HTTP/gRPC route | `omni create http ...`; `--host`、`--path`、`--alpn` 可任意组合 |
 | Register cert paths | `omni create cert ...` |
 | Delete object | `omni delete backends 3 --yes` |
 | Use unsupported API directly | `omni raw GET /api/config/export` |
@@ -176,6 +176,7 @@ omni create http \
   --name xui-grpc \
   --host grpc.example.com \
   --path /grpc \
+  --alpn h2 \
   --backend xui-grpc \
   --backend-type grpc
 ```

@@ -6,7 +6,7 @@
 - SNI 命中后进入本机 HTTPS/H1/H2 终止层。
 - Reality / Trojan / VLESS TLS 等后端自管 TLS 的原样透传。
 - UDP 443 HTTP/3 / QUIC 终止。
-- HTTP/3 终止后复用同一套 Host / Path 路由。
+- HTTP/3 终止后复用同一套 Host / Path / ALPN 路由。
 - HTTP 类后端：普通 HTTP、WebSocket、XHTTP / SplitHTTP / 流式 HTTP。
 - gRPC 类后端：使用 `grpc_pass` 独立模板。
 - IPv4 / IPv6 监听模式、配置预览、`nginx -t`、热重载、失败恢复和版本回滚。
@@ -108,10 +108,10 @@ Nginx 容器启动时会在 `/etc/nginx/certs/default.crt` 与 `/etc/nginx/certs
 4. 在“SNI 分流规则”中配置；同一目标后端/动作可以一次录入多个 SNI，ALPN 使用固定选项多选：
    - `proxy.example.com, *.hd1.example.com -> 进入 HTTP 终止层`
    - `reality.example.com, grpc.example.com -> TLS 透传到 xray-reality:443`
-5. 在“HTTP 路由规则”中配置：
+5. 在“HTTP 路由规则”中配置；Host、Path、ALPN 可任意组合，至少填写其中一个：
    - `Host proxy.example.com + Path /ws -> HTTP 类 / WebSocket`
    - `Host proxy.example.com + Path /xhttp -> HTTP 类 / XHTTP 流式`
-   - `Host grpc.example.com + Path /grpc -> gRPC 类`
+   - `Host grpc.example.com + Path /grpc + ALPN h2 -> gRPC 类`
    - `match_type=default / path=/ / is_default_fallback=true -> 选择上一步创建的 fallback 后端`
 6. 进入“预览 / 应用”，检查生成的 Nginx 配置。
 7. 点击“执行 nginx -t 并应用”。失败时 UI 会恢复旧配置文件，成功时保存配置版本。
@@ -288,7 +288,7 @@ pip install -r ui/requirements.txt
 - HTTPS / HTTP/1.1 / HTTP/2 终止模板。
 - HTTP/3 / QUIC 终止模板。
 - HTTP/3 复用 HTTP 路由规则。
-- Host / Path / 默认 fallback 路由。
+- Host / Path / ALPN 任意组合路由和默认 fallback 路由。
 - HTTP 类普通模式、WebSocket 模式、XHTTP / SplitHTTP / 流式模式。
 - gRPC 类后端模板。
 - IPv4 / IPv6 监听模式。

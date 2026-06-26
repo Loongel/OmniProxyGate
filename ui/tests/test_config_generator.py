@@ -53,6 +53,9 @@ def sample_objects():
         NS(id=2, name="xhttp", enabled=True, host="proxy.example.com", path="/xhttp", match_type="host_path", priority=20, backend_type="http", http_mode="xhttp_stream", backend_id=2, is_default_fallback=False),
         NS(id=3, name="grpc", enabled=True, host="grpc.example.com", path="/grpc", match_type="host_path", priority=10, backend_type="grpc", http_mode=None, backend_id=3, is_default_fallback=False),
         NS(id=4, name="fallback", enabled=True, host=None, path="/", match_type="default", priority=1000, backend_type="http", http_mode="normal", backend_id=4, is_default_fallback=True),
+        NS(id=5, name="same-path-h2", enabled=True, host="combo.example.com", path="/mux", alpn="h2", match_type="host_path_alpn", priority=10, backend_type="grpc", http_mode=None, backend_id=3, is_default_fallback=False),
+        NS(id=6, name="same-path-h1", enabled=True, host="combo.example.com", path="/mux", alpn="http/1.1", match_type="host_path_alpn", priority=20, backend_type="http", http_mode="normal", backend_id=1, is_default_fallback=False),
+        NS(id=7, name="alpn-only", enabled=True, host=None, path=None, alpn="h2,h3", match_type="alpn", priority=50, backend_type="grpc", http_mode=None, backend_id=3, is_default_fallback=False),
     ]
     return listener, sni_routes, http_routes, backends, certs
 
@@ -73,7 +76,14 @@ def test_generate_contains_required_blocks():
     assert "proxy_pass http://$nggm_http_backend_1;" in generated.http
     assert "server_name proxy.example.com;" in generated.http
     assert "server_name grpc.example.com;" in generated.http
+    assert "server_name combo.example.com;" in generated.http
     assert "server_name *.apps.example.com;" in generated.http
+    assert "# Dispatcher: combo.example.com /mux by ALPN" in generated.http
+    assert 'if ($ssl_alpn_protocol ~* "^h2$") { return 470; }' in generated.http
+    assert 'if ($ssl_alpn_protocol ~* "^http/1\\.1$") { return 471; }' in generated.http
+    assert 'if ($http3 ~* "^h3$")' in generated.http
+    assert "location @nggm_http_combo_example_com_route_5 {" in generated.http
+    assert "location @nggm_http_combo_example_com_route_6 {" in generated.http
     assert "proxy_set_header Upgrade $http_upgrade;" in generated.http
     assert "proxy_request_buffering off;" in generated.http
     assert "listen 0.0.0.0:443 quic reuseport;" in generated.http

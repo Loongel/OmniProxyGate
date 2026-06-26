@@ -18,7 +18,7 @@
 1. 后端管理：添加网站、Xray、sing-box、3X-UI、Reality、fallback 等后端。
 2. 证书管理：添加精确域名或泛域名证书路径；同一证书路径可以一次录入多个域名。
 3. SNI 分流规则：决定 TCP 443 ClientHello 命中后进入 HTTP 终止、TLS 透传或 reject；同一动作和后端可以一次录入多个 SNI。
-4. HTTP 路由规则：决定 HTTP 终止后的 Host/Path/WebSocket/XHTTP/gRPC/fallback 转发。
+4. HTTP 路由规则：决定 HTTP 终止后的 Host/Path/ALPN/WebSocket/XHTTP/gRPC/fallback 转发。
 5. 预览 / 应用：查看生成的 Nginx 配置，执行 `nginx -t`，成功后 reload。
 
 `examples/sample-config.json` 对应的是这些 UI 表单的字段快照。Web UI 的“预览 / 应用”页支持 JSON 导入/导出；启动时也可以通过 `SAMPLE_DATA_JSON` 给空数据库加载样例。
@@ -28,8 +28,8 @@
 | 层级 | 能看到什么 | 可配置规则 | 典型用途 |
 | --- | --- | --- | --- |
 | TCP stream 443 | SNI、ALPN | `sni`、可选 `alpn`、`action` | HTTP 终止、TLS 透传、reject |
-| HTTP 终止层 | Host、Path | `host`、`path`、`match_type`、`backend_type`、`http_mode` | WebSocket、XHTTP、gRPC、普通 HTTP、fallback |
-| UDP HTTP/3 443 | QUIC 终止后的 Host、Path | 复用 HTTP 路由 | H3 访问同一套路由表 |
+| HTTP 终止层 | Host、Path、ALPN | `host`、`path`、`alpn`、`match_type`、`backend_type`、`http_mode` | WebSocket、XHTTP、gRPC、普通 HTTP、fallback |
+| UDP HTTP/3 443 | QUIC 终止后的 Host、Path、ALPN | 复用 HTTP 路由 | H3 访问同一套路由表 |
 
 关键限制：HTTP/3 是 UDP QUIC，不经过 TCP stream SNI 分流；它由 HTTP/3 server block 终止后复用 HTTP Host/Path 路由。
 
@@ -153,11 +153,14 @@ HTTP 路由只在进入 HTTP 终止层后生效，包括 HTTPS/H1/H2 和 HTTP/3 
 
 | 需求 | 字段组合 | 后端类型 |
 | --- | --- | --- |
-| Host + Path WebSocket | `host=proxy.example.com`, `path=/ws`, `match_type=host_path`, `http_mode=websocket` | `backend_type=http` |
-| Host + Path XHTTP / SplitHTTP | `host=proxy.example.com`, `path=/xhttp`, `match_type=host_path`, `http_mode=xhttp_stream` | `backend_type=http` |
-| gRPC | `host=grpc.example.com`, `path=/grpc`, `match_type=host_path` | `backend_type=grpc` |
-| 所有 Host 共享路径 | `host=null`, `path=/api`, `match_type=path` | `backend_type=http` |
+| Host + Path WebSocket | `host=proxy.example.com`, `path=/ws`, `alpn=null`, `http_mode=websocket` | `backend_type=http` |
+| Host + Path XHTTP / SplitHTTP | `host=proxy.example.com`, `path=/xhttp`, `alpn=null`, `http_mode=xhttp_stream` | `backend_type=http` |
+| Host + Path + ALPN gRPC | `host=grpc.example.com`, `path=/grpc`, `alpn=h2` | `backend_type=grpc` |
+| 仅 ALPN | `host=null`, `path=null`, `alpn=h2` | `backend_type=grpc` |
+| 所有 Host 共享路径 | `host=null`, `path=/api`, `alpn=null` | `backend_type=http` |
 | 默认 fallback | `host=null`, `path=/`, `match_type=default`, `is_default_fallback=true` | `backend_type=http` 或 `grpc` |
+
+非 fallback 规则的 `match_type` 会由服务端根据实际填写的 `host`、`path`、`alpn` 自动推导，例如 `host_alpn`、`path_alpn`、`host_path_alpn`。UI 和 CLI 不需要手工维护这个字段。
 
 示例：
 
@@ -166,6 +169,7 @@ HTTP 路由只在进入 HTTP 终止层后生效，包括 HTTPS/H1/H2 和 HTTP/3 
   "name": "proxy-ws",
   "host": "proxy.example.com",
   "path": "/ws",
+  "alpn": null,
   "match_type": "host_path",
   "backend_type": "http",
   "http_mode": "websocket",
@@ -401,11 +405,10 @@ environment:
 ## 当前已知限制
 
 1. TCP stream 层可以组合 `SNI + ALPN`，但看不到 HTTP `Path`。
-2. HTTP 路由层可以组合 `Host + Path`，但当前模型没有每条 HTTP 路由的 `h1/h2/h3` 协议选择器。
-3. HTTP/3 不能通过 TCP stream SNI 分流，因为它是 UDP QUIC。
-4. 泛域名只支持前缀 `*.example.com`。
-5. `*.example.com` 不匹配 `example.com`，需要单独配置 apex。
-6. 动态 DNS 解析默认使用 Docker 内置 DNS `127.0.0.11`，当前运行形态默认面向 Docker/Compose 网络。
+2. HTTP/3 不能通过 TCP stream SNI 分流，因为它是 UDP QUIC；进入 HTTP 终止层后复用 HTTP 路由。
+3. 泛域名只支持前缀 `*.example.com`。
+4. `*.example.com` 不匹配 `example.com`，需要单独配置 apex。
+5. 动态 DNS 解析默认使用 Docker 内置 DNS `127.0.0.11`，当前运行形态默认面向 Docker/Compose 网络。
 7. 当前 UI 是主配置入口；JSON 只有种子数据能力，不是正式导入/导出工作流。
 
 如果后续要让 `SNI + H1/H2/H3 + Path` 都作为可组合分流维度，需要新增 HTTP route 协议条件，例如 `protocol_match = any | h1 | h2 | h3`，并调整生成器按协议拆分或加保护条件。

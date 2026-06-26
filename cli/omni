@@ -236,8 +236,8 @@ def cmd_list(args: argparse.Namespace) -> int:
         "backend": ["id", "name", "host", "port", "protocol", "send_proxy_protocol"],
         "sni": ["id", "name", "sni", "action", "backend_id", "priority", "enabled"],
         "sni-routes": ["id", "name", "sni", "action", "backend_id", "priority", "enabled"],
-        "http": ["id", "name", "host", "path", "backend_id", "backend_type", "http_mode", "priority"],
-        "http-routes": ["id", "name", "host", "path", "backend_id", "backend_type", "http_mode", "priority"],
+        "http": ["id", "name", "host", "path", "alpn", "backend_id", "backend_type", "http_mode", "priority"],
+        "http-routes": ["id", "name", "host", "path", "alpn", "backend_id", "backend_type", "http_mode", "priority"],
         "certs": ["id", "name", "domain", "cert_path", "key_path"],
         "certificates": ["id", "name", "domain", "cert_path", "key_path"],
         "versions": ["id", "version", "status", "generated_at"],
@@ -316,6 +316,7 @@ def cmd_create_http(args: argparse.Namespace) -> int:
         "enabled": not args.disabled,
         "host": args.host,
         "path": args.path,
+        "alpn": args.alpn,
         "match_type": args.match_type,
         "priority": args.priority,
         "backend_type": args.backend_type,
@@ -476,8 +477,9 @@ Examples:
     p = create_sub.add_parser("http", help="create an HTTP/gRPC route")
     p.add_argument("--name", required=True)
     p.add_argument("--host")
-    p.add_argument("--path", default="/")
-    p.add_argument("--match-type", default="host_path", choices=["host_path", "host", "path", "default"])
+    p.add_argument("--path", help="path prefix such as /grpc; omit to match all paths")
+    p.add_argument("--alpn", help="comma/semicolon separated ALPN values such as h2,http/1.1,h3")
+    p.add_argument("--match-type", default="host_path", choices=["host_path", "host", "path", "alpn", "host_alpn", "path_alpn", "host_path_alpn", "default"])
     p.add_argument("--priority", type=int, default=100)
     p.add_argument("--backend", required=True, help="backend id or exact backend name")
     p.add_argument("--backend-type", default="http", choices=["http", "grpc"])

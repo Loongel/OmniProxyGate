@@ -13,6 +13,7 @@ from .validators import (
     MATCH_TYPES,
     SNI_ACTIONS,
     require_choice,
+    validate_alpn_list,
     validate_backend_host,
     validate_backend_name,
     validate_domain,
@@ -246,7 +247,8 @@ class HttpRouteIn(BaseModel):
     name: str
     enabled: bool = True
     host: Optional[str] = None
-    path: Optional[str] = "/"
+    path: Optional[str] = None
+    alpn: Optional[str] = None
     match_type: str = "host_path"
     priority: int = 100
     backend_type: str = "http"
@@ -270,6 +272,11 @@ class HttpRouteIn(BaseModel):
     def path_valid(cls, value: Optional[str]) -> Optional[str]:
         return validate_path(value, "path", allow_empty=True)
 
+    @field_validator("alpn")
+    @classmethod
+    def alpn_valid(cls, value: Optional[str]) -> Optional[str]:
+        return validate_alpn_list(value, "alpn", allow_empty=True)
+
     @field_validator("match_type")
     @classmethod
     def match_valid(cls, value: str) -> str:
@@ -289,14 +296,21 @@ class HttpRouteIn(BaseModel):
 
     @model_validator(mode="after")
     def route_consistency(self) -> "HttpRouteIn":
-        if self.match_type in {"host", "host_path"} and not self.host:
-            raise ValueError("host is required for host and host_path match types")
-        if self.match_type in {"path", "host_path"} and not self.path:
-            raise ValueError("path is required for path and host_path match types")
-        if self.match_type == "default":
+        if self.match_type == "default" or self.is_default_fallback:
             self.is_default_fallback = True
             if not self.path:
                 self.path = "/"
+        else:
+            parts = []
+            if self.host:
+                parts.append("host")
+            if self.path:
+                parts.append("path")
+            if self.alpn:
+                parts.append("alpn")
+            if not parts:
+                raise ValueError("at least one of host, path, or alpn is required")
+            self.match_type = "_".join(parts)
         if self.backend_type == "grpc":
             self.http_mode = None
         elif not self.http_mode:
