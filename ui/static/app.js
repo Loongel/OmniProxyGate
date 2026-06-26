@@ -1,6 +1,6 @@
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
-const state = { initialized: false, authenticated: false, listener: null, backends: [], certs: [], sni: [], http: [], versions: [] };
+const state = { initialized: false, authenticated: false, listener: null, backends: [], certs: [], sni: [], http: [], versions: [], table: {}, dirty: false };
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -16,6 +16,12 @@ function toast(message, bad = false) {
   box.style.borderColor = bad ? '#ef4444' : '#14b8a6';
   clearTimeout(window.__toastTimer);
   window.__toastTimer = setTimeout(() => box.classList.add('hidden'), 4200);
+}
+
+function setDirty(value) {
+  state.dirty = Boolean(value);
+  const badge = $('#dirtyBadge');
+  if (badge) badge.classList.toggle('hidden', !state.dirty);
 }
 
 async function api(path, options = {}) {
@@ -34,6 +40,7 @@ async function api(path, options = {}) {
 
 function formToObject(form) {
   updateConditionalFields(form.id);
+  syncAlpnInput(form);
   const obj = {};
   Array.from(form.elements).forEach((el) => {
     if (!el.name || el.disabled || el.type === 'button' || el.type === 'submit') return;
@@ -43,11 +50,39 @@ function formToObject(form) {
   });
   if (obj.extra_options == null) obj.extra_options = '{}';
   if (Object.prototype.hasOwnProperty.call(obj, 'id')) delete obj.id;
+  if (Object.prototype.hasOwnProperty.call(obj, 'group_ids')) delete obj.group_ids;
   return obj;
 }
 
 function parseListInput(value) {
-  return String(value || '').split(/[\s,，;；]+/).map(v => v.trim()).filter(Boolean);
+  return [...new Set(String(value || '').split(/[\s,，;；]+/).map(v => v.trim()).filter(Boolean))];
+}
+
+function groupIdsFromForm(form) {
+  const raw = form.elements.group_ids ? form.elements.group_ids.value : '';
+  return parseListInput(raw);
+}
+
+function certNameForDomain(baseName, domain, index, total) {
+  if (total <= 1) return baseName;
+  const suffix = domain.replace(/[^A-Za-z0-9_.-]/g, '-').replace(/^\*\./, 'wild-');
+  return `${baseName}-${index + 1}-${suffix}`.slice(0, 63);
+}
+
+function alpnValues(value) {
+  return parseListInput(String(value || '').replace(/,/g, ' '));
+}
+
+function syncAlpnChips(form) {
+  if (!form || form.id !== 'sniForm') return;
+  const values = new Set(alpnValues(form.elements.alpn.value));
+  form.querySelectorAll('[data-alpn]').forEach(btn => btn.classList.toggle('selected', values.has(btn.dataset.alpn)));
+}
+
+function syncAlpnInput(form) {
+  if (!form || form.id !== 'sniForm') return;
+  const values = Array.from(form.querySelectorAll('[data-alpn].selected')).map(btn => btn.dataset.alpn);
+  form.elements.alpn.value = values.join(',');
 }
 
 function fillForm(formId, obj) {
@@ -58,8 +93,11 @@ function fillForm(formId, obj) {
     if (formId === 'listenerForm' && el.name === 'tcp_port' && Array.isArray(obj.tcp_ports)) value = obj.tcp_ports.join(',');
     if (formId === 'listenerForm' && el.name === 'udp_port' && Array.isArray(obj.udp_ports)) value = obj.udp_ports.join(',');
     if (el.type === 'checkbox') el.checked = Boolean(value);
+    else if (el.name === 'domain' && Array.isArray(value)) el.value = value.join('\n');
+    else if (el.name === 'sni' && Array.isArray(value)) el.value = value.join('\n');
     else el.value = value == null ? '' : value;
   });
+  syncAlpnChips(form);
   updateConditionalFields(formId);
   updateFormMode(formId);
   window.scrollTo({ top: form.getBoundingClientRect().top + window.scrollY - 110, behavior: 'smooth' });
@@ -70,6 +108,8 @@ function resetForm(id) {
   form.reset();
   const hidden = form.querySelector('input[name="id"]');
   if (hidden) hidden.value = '';
+  const groupIds = form.querySelector('input[name="group_ids"]');
+  if (groupIds) groupIds.value = '';
   const extra = form.querySelector('textarea[name="extra_options"]');
   if (extra) extra.value = '{}';
   if (id === 'backendForm') {
@@ -84,6 +124,8 @@ function resetForm(id) {
   if (id === 'sniForm') {
     form.elements.enabled.checked = true;
     form.elements.priority.value = 100;
+    form.elements.alpn.value = '';
+    syncAlpnChips(form);
     form.elements.listener_id.value = state.listener ? state.listener.id : 1;
   }
   if (id === 'httpForm') {
@@ -100,9 +142,70 @@ function actionButtons(kind, item) {
   return `<button class="muted" data-edit="${kind}" data-id="${item.id}">编辑</button> <button class="danger" data-delete="${kind}" data-id="${item.id}">删除</button>`;
 }
 
+function cellText(column, row) {
+  if (column.text) return column.text(row);
+  const raw = row[column.key];
+  return Array.isArray(raw) ? raw.join(' ') : String(raw ?? '');
+}
+
+function tableState(target) {
+  if (!state.table[target]) state.table[target] = { q: '', sort: '', dir: 'asc' };
+  return state.table[target];
+}
+
+function prepareRows(target, columns, rows) {
+  const ts = tableState(target);
+  let filtered = rows;
+  const q = ts.q.trim().toLowerCase();
+  if (q) filtered = rows.filter(row => columns.some(c => cellText(c, row).toLowerCase().includes(q)));
+  if (ts.sort) {
+    const col = columns.find(c => c.key === ts.sort || c.sortKey === ts.sort);
+    if (col) {
+      const key = col.sortKey || col.key;
+      filtered = [...filtered].sort((a, b) => {
+        const av = col.sortValue ? col.sortValue(a) : (a[key] ?? '');
+        const bv = col.sortValue ? col.sortValue(b) : (b[key] ?? '');
+        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+        return ts.dir === 'desc' ? -cmp : cmp;
+      });
+    }
+  }
+  return filtered;
+}
+
+function renderTableControls(target, columns, rows) {
+  const ts = tableState(target);
+  const sortable = columns.filter(c => c.sortable !== false);
+  return `<div class="table-tools" data-table-tools="${target}">
+    <label class="table-search">搜索 <input data-table-search="${target}" value="${escapeHtml(ts.q)}" placeholder="按名称、域名、后端、路径过滤" /></label>
+    <label class="table-sort">排序 <select data-table-sort="${target}"><option value="">默认</option>${sortable.map(c => `<option value="${escapeHtml(c.sortKey || c.key)}" ${ts.sort === (c.sortKey || c.key) ? 'selected' : ''}>${escapeHtml(c.label)}</option>`).join('')}</select></label>
+    <button type="button" class="muted compact" data-table-dir="${target}">${ts.dir === 'desc' ? '降序' : '升序'}</button>
+    <span class="table-count">${prepareRows(target, columns, rows).length} / ${rows.length}</span>
+  </div>`;
+}
+
 function renderTable(target, columns, rows, kind) {
-  const html = rows.length ? `<table><thead><tr>${columns.map(c => `<th>${c.label}</th>`).join('')}<th>操作</th></tr></thead><tbody>${rows.map(row => `<tr>${columns.map(c => `<td>${c.render ? c.render(row) : (row[c.key] ?? '')}</td>`).join('')}<td>${actionButtons(kind, row)}</td></tr>`).join('')}</tbody></table>` : '<p class="hint">暂无数据</p>';
-  document.getElementById(target).innerHTML = html;
+  const displayRows = prepareRows(target, columns, rows);
+  const body = displayRows.length ? `<table><thead><tr>${columns.map(c => `<th>${c.label}</th>`).join('')}<th>操作</th></tr></thead><tbody>${displayRows.map(row => `<tr>${columns.map(c => `<td>${c.render ? c.render(row) : escapeHtml(row[c.key] ?? '')}</td>`).join('')}<td>${actionButtons(kind, row)}</td></tr>`).join('')}</tbody></table>` : '<p class="hint">暂无匹配数据</p>';
+  document.getElementById(target).innerHTML = renderTableControls(target, columns, rows) + body;
+}
+
+function renderTableByTarget(target) {
+  if (target === 'backendsTable') {
+    renderTable('backendsTable', [
+      { key: 'id', label: 'ID' }, { key: 'name', label: '名称' }, { key: 'host', label: '地址' }, { key: 'port', label: '端口' }, { key: 'protocol', label: '协议' },
+      { key: 'tls_to_backend', label: 'TLS', render: r => r.tls_to_backend ? '是' : '否' }, { key: 'send_proxy_protocol', label: 'PROXY', render: r => r.send_proxy_protocol ? '是' : '否' }, { key: 'read_timeout', label: '读超时' }
+    ], state.backends, 'backend');
+  } else if (target === 'certsTable') {
+    renderCertTable();
+  } else if (target === 'sniTable') {
+    renderSniTable();
+  } else if (target === 'httpTable') {
+    renderTable('httpTable', [
+      { key: 'id', label: 'ID' }, { key: 'enabled', label: '启用', render: r => r.enabled ? '是' : '否' }, { key: 'priority', label: '优先级' }, { key: 'host', label: 'Host' },
+      { key: 'path', label: 'Path' }, { key: 'match_type', label: '匹配' }, { key: 'backend_type', label: '后端类型' }, { key: 'http_mode', label: 'HTTP 模式' }, { key: 'backend_id', label: '目标后端', render: r => backendSummary(r.backend_id) }
+    ], state.http, 'http');
+  }
 }
 
 function backendById(id) {
@@ -199,35 +302,66 @@ function renderVersions() {
   $('#versionsTable').innerHTML = html;
 }
 
-function renderSniTable() {
+function groupCerts() {
+  const groups = new Map();
+  state.certs.forEach(row => {
+    const key = [row.cert_path, row.key_path, row.managed_by_system].join('|');
+    if (!groups.has(key)) groups.set(key, { ...row, ids: [], domains: [], names: [] });
+    const group = groups.get(key);
+    group.ids.push(row.id);
+    group.domains.push(row.domain);
+    group.names.push(row.name);
+  });
+  return Array.from(groups.values());
+}
+
+function renderCertTable() {
+  const rows = groupCerts();
+  const columns = [
+    { key: 'ids', label: 'ID', render: r => r.ids.map(escapeHtml).join(', '), text: r => r.ids.join(' ') },
+    { key: 'names', label: '名称', render: r => r.names.map(escapeHtml).join('<br>'), text: r => r.names.join(' ') },
+    { key: 'domains', label: '域名', render: r => `<div class="chip-list">${r.domains.map(v => `<span class="mini-chip">${escapeHtml(v)}</span>`).join('')}</div>`, text: r => r.domains.join(' ') },
+    { key: 'cert_path', label: '证书' },
+    { key: 'key_path', label: '私钥' },
+  ];
+  const displayRows = prepareRows('certsTable', columns, rows);
+  const body = displayRows.length ? `<table><thead><tr>${columns.map(c => `<th>${c.label}</th>`).join('')}<th>操作</th></tr></thead><tbody>${displayRows.map(row => `<tr>${columns.map(c => `<td>${c.render ? c.render(row) : escapeHtml(row[c.key] ?? '')}</td>`).join('')}<td><button class="muted" data-edit-cert-group="${row.ids.join(',')}">编辑本组</button> <button class="danger" data-delete-cert-group="${row.ids.join(',')}">删除本组</button></td></tr>`).join('')}</tbody></table>` : '<p class="hint">暂无匹配数据</p>';
+  $('#certsTable').innerHTML = renderTableControls('certsTable', columns, rows) + body;
+}
+
+function groupSniRoutes() {
   const groups = new Map();
   state.sni.forEach(row => {
     const key = [row.enabled, row.priority, row.alpn || '', row.action, row.backend_id || ''].join('|');
-    if (!groups.has(key)) groups.set(key, { ...row, ids: [], sni_values: [] });
+    if (!groups.has(key)) groups.set(key, { ...row, ids: [], names: [], sni_values: [] });
     const group = groups.get(key);
     group.ids.push(row.id);
+    group.names.push(row.name);
     group.sni_values.push(row.sni);
   });
-  const rows = Array.from(groups.values());
-  const html = rows.length ? `<table><thead><tr><th>ID</th><th>启用</th><th>优先级</th><th>SNI</th><th>ALPN</th><th>动作</th><th>目标后端</th><th>操作</th></tr></thead><tbody>${rows.map(row => `<tr><td>${row.ids.map(escapeHtml).join(', ')}</td><td>${row.enabled ? '是' : '否'}</td><td>${row.priority}</td><td>${row.sni_values.map(escapeHtml).join('<br>')}</td><td>${escapeHtml(row.alpn || '')}</td><td>${escapeHtml(row.action)}</td><td>${backendSummary(row.backend_id)}</td><td><button class="muted" data-edit="sni" data-id="${row.ids[0]}">编辑首条</button> <button class="danger" data-delete-sni-group="${row.ids.join(',')}">删除本组</button></td></tr>`).join('')}</tbody></table>` : '<p class="hint">暂无数据</p>';
-  $('#sniTable').innerHTML = html;
+  return Array.from(groups.values());
+}
+
+function renderSniTable() {
+  const rows = groupSniRoutes();
+  const columns = [
+    { key: 'ids', label: 'ID', render: r => r.ids.map(escapeHtml).join(', '), text: r => r.ids.join(' ') },
+    { key: 'enabled', label: '启用', render: r => r.enabled ? '是' : '否' },
+    { key: 'priority', label: '优先级' },
+    { key: 'sni_values', label: 'SNI', render: r => `<div class="chip-list">${r.sni_values.map(v => `<span class="mini-chip">${escapeHtml(v)}</span>`).join('')}</div>`, text: r => r.sni_values.join(' ') },
+    { key: 'alpn', label: 'ALPN', render: r => r.alpn ? `<div class="chip-list">${alpnValues(r.alpn).map(v => `<span class="mini-chip accent">${escapeHtml(v)}</span>`).join('')}</div>` : '<span class="muted-text">不限</span>' },
+    { key: 'action', label: '动作' },
+    { key: 'backend_id', label: '目标后端', render: r => backendSummary(r.backend_id), text: r => backendLabel(backendById(r.backend_id)) },
+  ];
+  const displayRows = prepareRows('sniTable', columns, rows);
+  const body = displayRows.length ? `<table><thead><tr>${columns.map(c => `<th>${c.label}</th>`).join('')}<th>操作</th></tr></thead><tbody>${displayRows.map(row => `<tr>${columns.map(c => `<td>${c.render ? c.render(row) : escapeHtml(row[c.key] ?? '')}</td>`).join('')}<td><button class="muted" data-edit-sni-group="${row.ids.join(',')}">编辑本组</button> <button class="danger" data-delete-sni-group="${row.ids.join(',')}">删除本组</button></td></tr>`).join('')}</tbody></table>` : '<p class="hint">暂无匹配数据</p>';
+  $('#sniTable').innerHTML = renderTableControls('sniTable', columns, rows) + body;
 }
 
 function renderAllTables() {
   populateBackendSelects();
   updateAllConditionalFields();
-  renderTable('backendsTable', [
-    { key: 'id', label: 'ID' }, { key: 'name', label: '名称' }, { key: 'host', label: '地址' }, { key: 'port', label: '端口' }, { key: 'protocol', label: '协议' },
-    { key: 'tls_to_backend', label: 'TLS', render: r => r.tls_to_backend ? '是' : '否' }, { key: 'send_proxy_protocol', label: 'PROXY', render: r => r.send_proxy_protocol ? '是' : '否' }, { key: 'read_timeout', label: '读超时' }
-  ], state.backends, 'backend');
-  renderTable('certsTable', [
-    { key: 'id', label: 'ID' }, { key: 'name', label: '名称' }, { key: 'domain', label: '域名' }, { key: 'cert_path', label: '证书' }, { key: 'key_path', label: '私钥' }
-  ], state.certs, 'cert');
-  renderSniTable();
-  renderTable('httpTable', [
-    { key: 'id', label: 'ID' }, { key: 'enabled', label: '启用', render: r => r.enabled ? '是' : '否' }, { key: 'priority', label: '优先级' }, { key: 'host', label: 'Host' },
-    { key: 'path', label: 'Path' }, { key: 'match_type', label: '匹配' }, { key: 'backend_type', label: '后端类型' }, { key: 'http_mode', label: 'HTTP 模式' }, { key: 'backend_id', label: '目标后端', render: r => backendSummary(r.backend_id) }
-  ], state.http, 'http');
+  ['backendsTable', 'certsTable', 'sniTable', 'httpTable'].forEach(renderTableByTarget);
   renderVersions();
 }
 
@@ -282,6 +416,7 @@ async function submitListener(ev) {
   try {
     await api('/api/listener', { method: 'PUT', body: JSON.stringify(formToObject(ev.currentTarget)) });
     await refreshAll();
+    setDirty(true);
     toast('入口设置已保存');
   } catch (err) { toast(err.message, true); }
 }
@@ -304,28 +439,34 @@ async function submitCrud(ev) {
   if (!entry) return;
   const [kind, cfg] = entry;
   const id = form.elements.id ? form.elements.id.value : '';
+  const groupIds = groupIdsFromForm(form);
   const payload = formToObject(form);
   try {
     if (kind === 'sni') {
       const sniValues = parseListInput(payload.sni);
       if (!sniValues.length) throw new Error('至少需要一个 SNI 域名');
-    if (id) {
-      await api(`${cfg.base}/${id}`, { method: 'PUT', body: JSON.stringify({ ...payload, sni: sniValues[0] }) });
-      for (const sni of sniValues.slice(1)) {
-          await api(cfg.base, { method: 'POST', body: JSON.stringify({ ...payload, name: routeNameForSni(payload.name, sni, sniValues.indexOf(sni), sniValues.length), sni }) });
+      const idsToReplace = groupIds.length ? groupIds : (id ? [id] : []);
+      for (const oldId of idsToReplace) await api(`${cfg.base}/${oldId}`, { method: 'DELETE' });
+      for (let i = 0; i < sniValues.length; i += 1) {
+        const sni = sniValues[i];
+        await api(cfg.base, { method: 'POST', body: JSON.stringify({ ...payload, name: routeNameForSni(payload.name, sni, i, sniValues.length), sni }) });
       }
-    } else {
-        for (let i = 0; i < sniValues.length; i += 1) {
-          const sni = sniValues[i];
-          await api(cfg.base, { method: 'POST', body: JSON.stringify({ ...payload, name: routeNameForSni(payload.name, sni, i, sniValues.length), sni }) });
-        }
+    } else if (kind === 'cert') {
+      const domains = parseListInput(payload.domain);
+      if (!domains.length) throw new Error('至少需要一个证书域名');
+      const idsToReplace = groupIds.length ? groupIds : (id ? [id] : []);
+      for (const oldId of idsToReplace) await api(`${cfg.base}/${oldId}`, { method: 'DELETE' });
+      for (let i = 0; i < domains.length; i += 1) {
+        const domain = domains[i];
+        await api(cfg.base, { method: 'POST', body: JSON.stringify({ ...payload, name: certNameForDomain(payload.name, domain, i, domains.length), domain }) });
       }
     } else {
       await api(id ? `${cfg.base}/${id}` : cfg.base, { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
     }
     resetForm(form.id);
     await refreshAll();
-    toast(kind === 'sni' ? 'SNI 规则已保存' : `${kind} 已保存`);
+    setDirty(true);
+    toast(kind === 'sni' ? 'SNI 规则已保存' : kind === 'cert' ? '证书已保存' : `${kind} 已保存`);
   } catch (err) { toast(err.message, true); }
 }
 
@@ -336,6 +477,7 @@ async function deleteItem(kind, id) {
   try {
     await api(`${cfg.base}/${id}`, { method: 'DELETE' });
     await refreshAll();
+    setDirty(true);
     toast('已删除');
   } catch (err) { toast(err.message, true); }
 }
@@ -347,8 +489,50 @@ async function deleteSniGroup(ids) {
   try {
     for (const id of idList) await api(`/api/sni-routes/${id}`, { method: 'DELETE' });
     await refreshAll();
+    setDirty(true);
     toast('SNI 规则组已删除');
   } catch (err) { toast(err.message, true); }
+}
+
+async function deleteCertGroup(ids) {
+  const idList = ids.split(',').map(v => v.trim()).filter(Boolean);
+  if (!idList.length) return;
+  if (!confirm(`确认删除本组 ${idList.length} 条证书域名？`)) return;
+  try {
+    for (const id of idList) await api(`/api/certificates/${id}`, { method: 'DELETE' });
+    await refreshAll();
+    setDirty(true);
+    toast('证书组已删除');
+  } catch (err) { toast(err.message, true); }
+}
+
+function editSniGroup(ids) {
+  const idList = ids.split(',').map(v => v.trim()).filter(Boolean);
+  const items = state.sni.filter(x => idList.includes(String(x.id)));
+  if (!items.length) return;
+  const first = items[0];
+  fillForm('sniForm', { ...first, id: first.id, group_ids: idList.join(','), name: first.names ? first.names[0] : first.name.replace(/-\d+-.*$/, ''), sni: items.map(x => x.sni), alpn: first.alpn || '' });
+}
+
+function editCertGroup(ids) {
+  const idList = ids.split(',').map(v => v.trim()).filter(Boolean);
+  const items = state.certs.filter(x => idList.includes(String(x.id)));
+  if (!items.length) return;
+  const first = items[0];
+  fillForm('certForm', { ...first, id: first.id, group_ids: idList.join(','), name: first.names ? first.names[0] : first.name.replace(/-\d+-.*$/, ''), domain: items.map(x => x.domain) });
+}
+
+function refreshTableControl(target, restoreFocus = false) {
+  const active = restoreFocus ? document.activeElement : null;
+  const selectionStart = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
+  renderTableByTarget(target);
+  if (restoreFocus) {
+    const next = document.querySelector(`[data-table-search="${target}"]`);
+    if (next) {
+      next.focus();
+      if (selectionStart != null) next.setSelectionRange(selectionStart, selectionStart);
+    }
+  }
 }
 
 function editItem(kind, id) {
@@ -366,6 +550,7 @@ async function applyConfig() {
     $('#applyResult').textContent = `ok=${result.ok}\nversion=${result.version || ''}\n${result.test_result || ''}\n${result.error_log || ''}`;
     state.versions = await api('/api/config/versions');
     renderVersions();
+    if (result.ok) setDirty(false);
     toast(result.ok ? '配置已应用' : '配置测试或 reload 失败', !result.ok);
   } catch (err) {
     $('#applyResult').textContent = err.message;
@@ -380,6 +565,7 @@ async function rollback(id) {
     $('#applyResult').textContent = `rollback ok=${result.ok}\nversion=${result.version || ''}\n${result.test_result || ''}\n${result.error_log || ''}`;
     state.versions = await api('/api/config/versions');
     renderVersions();
+    if (result.ok) setDirty(false);
     toast(result.ok ? '回滚完成' : '回滚失败', !result.ok);
   } catch (err) { toast(err.message, true); }
 }
@@ -414,6 +600,7 @@ async function importConfig(file) {
     const bundle = JSON.parse(await file.text());
     const result = await api('/api/config/import', { method: 'POST', body: JSON.stringify(bundle) });
     await refreshAll();
+    setDirty(true);
     toast(`导入完成：后端 ${result.backends}，SNI ${result.sni_routes}，HTTP ${result.http_routes}`);
   } catch (err) { toast(`导入失败：${err.message}`, true); }
 }
@@ -429,19 +616,41 @@ function initEvents() {
   $$('[data-reset]').forEach(btn => btn.addEventListener('click', () => resetForm(btn.dataset.reset)));
   $$('.tabs button[data-tab]').forEach(btn => btn.addEventListener('click', () => {
     $$('.tabs button[data-tab]').forEach(b => b.classList.remove('active'));
+    $$('.tabs button[data-tab]').forEach(b => b.setAttribute('aria-selected', 'false'));
     $$('.tab').forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
+    btn.setAttribute('aria-selected', 'true');
     $(`#tab-${btn.dataset.tab}`).classList.add('active');
   }));
   document.body.addEventListener('click', (ev) => {
     const edit = ev.target.closest('[data-edit]');
     const del = ev.target.closest('[data-delete]');
     const delSniGroup = ev.target.closest('[data-delete-sni-group]');
+    const delCertGroup = ev.target.closest('[data-delete-cert-group]');
+    const editSniGroupBtn = ev.target.closest('[data-edit-sni-group]');
+    const editCertGroupBtn = ev.target.closest('[data-edit-cert-group]');
+    const sortDir = ev.target.closest('[data-table-dir]');
     const rb = ev.target.closest('[data-rollback]');
     if (edit) editItem(edit.dataset.edit, edit.dataset.id);
     if (del) deleteItem(del.dataset.delete, del.dataset.id);
     if (delSniGroup) deleteSniGroup(delSniGroup.dataset.deleteSniGroup);
+    if (delCertGroup) deleteCertGroup(delCertGroup.dataset.deleteCertGroup);
+    if (editSniGroupBtn) editSniGroup(editSniGroupBtn.dataset.editSniGroup);
+    if (editCertGroupBtn) editCertGroup(editCertGroupBtn.dataset.editCertGroup);
+    if (sortDir) { const target = sortDir.dataset.tableDir; const ts = tableState(target); ts.dir = ts.dir === 'desc' ? 'asc' : 'desc'; refreshTableControl(target); }
     if (rb) rollback(rb.dataset.rollback);
+  });
+  document.body.addEventListener('input', (ev) => {
+    const search = ev.target.closest('[data-table-search]');
+    if (search) { tableState(search.dataset.tableSearch).q = search.value; refreshTableControl(search.dataset.tableSearch, true); }
+  });
+  document.body.addEventListener('change', (ev) => {
+    const sort = ev.target.closest('[data-table-sort]');
+    if (sort) { tableState(sort.dataset.tableSort).sort = sort.value; refreshTableControl(sort.dataset.tableSort); }
+  });
+  document.body.addEventListener('click', (ev) => {
+    const chip = ev.target.closest('[data-alpn]');
+    if (chip) { chip.classList.toggle('selected'); syncAlpnInput(document.getElementById('sniForm')); }
   });
   $('#previewBtn').addEventListener('click', () => refreshPreview(true));
   $('#applyBtn').addEventListener('click', applyConfig);
