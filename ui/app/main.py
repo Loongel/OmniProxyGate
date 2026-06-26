@@ -23,6 +23,7 @@ from .schemas import (
     AuthState,
     BackendIn,
     BackendOut,
+    CertificateBulkReplaceIn,
     CertificateIn,
     CertificateOut,
     ConfigApplyResult,
@@ -249,6 +250,41 @@ def update_certificate(item_id: int, payload: CertificateIn, db: Session = Depen
     _commit_or_400(db)
     db.refresh(obj)
     return obj
+
+
+@app.post("/api/certificates/bulk-replace", response_model=list[CertificateOut], dependencies=[Depends(require_user)])
+def bulk_replace_certificates(payload: CertificateBulkReplaceIn, db: Session = Depends(get_db)) -> list[Certificate]:
+    replace_ids = [item_id for item_id in dict.fromkeys(payload.replace_ids) if item_id]
+    try:
+        existing = []
+        if replace_ids:
+            existing = list(db.execute(select(Certificate).where(Certificate.id.in_(replace_ids))).scalars())
+            found_ids = {item.id for item in existing}
+            missing = [item_id for item_id in replace_ids if item_id not in found_ids]
+            if missing:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"certificate ids not found: {missing}")
+
+        for obj in existing:
+            db.delete(obj)
+        db.flush()
+
+        created: list[Certificate] = []
+        for item in payload.certificates:
+            obj = Certificate(**item.model_dump())
+            db.add(obj)
+            created.append(obj)
+        db.flush()
+
+        db.commit()
+        for obj in created:
+            db.refresh(obj)
+        return created
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="duplicate or invalid certificate record") from exc
 
 
 @app.delete("/api/certificates/{item_id}", dependencies=[Depends(require_user)])

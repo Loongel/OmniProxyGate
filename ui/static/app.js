@@ -18,6 +18,33 @@ function toast(message, bad = false) {
   window.__toastTimer = setTimeout(() => box.classList.add('hidden'), 4200);
 }
 
+function setFormMessage(form, message = '', bad = false) {
+  let box = form.querySelector('[data-form-message]');
+  if (!box) {
+    box = document.createElement('div');
+    box.dataset.formMessage = 'true';
+    box.className = 'form-message hidden';
+    form.prepend(box);
+  }
+  box.textContent = message;
+  box.classList.toggle('hidden', !message);
+  box.classList.toggle('form-message-bad', bad);
+  box.classList.toggle('form-message-good', Boolean(message) && !bad);
+}
+
+function setSubmitting(form, submitting) {
+  const submit = form.querySelector('button[type="submit"]');
+  if (!submit) return;
+  if (submitting) {
+    submit.dataset.label = submit.textContent;
+    submit.textContent = '保存中...';
+    submit.disabled = true;
+  } else {
+    submit.textContent = submit.dataset.label || submit.textContent;
+    submit.disabled = false;
+  }
+}
+
 function setDirty(value) {
   state.dirty = Boolean(value);
   const badge = $('#dirtyBadge');
@@ -413,12 +440,21 @@ async function submitAuth(ev) {
 
 async function submitListener(ev) {
   ev.preventDefault();
+  const form = ev.currentTarget;
+  setFormMessage(form);
+  setSubmitting(form, true);
   try {
-    await api('/api/listener', { method: 'PUT', body: JSON.stringify(formToObject(ev.currentTarget)) });
+    await api('/api/listener', { method: 'PUT', body: JSON.stringify(formToObject(form)) });
     await refreshAll();
     setDirty(true);
+    setFormMessage(form, '入口设置已保存，预览 / 应用页会显示待应用。');
     toast('入口设置已保存');
-  } catch (err) { toast(err.message, true); }
+  } catch (err) {
+    setFormMessage(form, err.message, true);
+    toast(err.message, true);
+  } finally {
+    setSubmitting(form, false);
+  }
 }
 
 const endpoints = {
@@ -435,8 +471,13 @@ function endpointByForm(formId) {
 async function submitCrud(ev) {
   ev.preventDefault();
   const form = ev.currentTarget;
+  setFormMessage(form);
+  setSubmitting(form, true);
   const entry = endpointByForm(form.id);
-  if (!entry) return;
+  if (!entry) {
+    setSubmitting(form, false);
+    return;
+  }
   const [kind, cfg] = entry;
   const id = form.elements.id ? form.elements.id.value : '';
   const groupIds = groupIdsFromForm(form);
@@ -455,19 +496,22 @@ async function submitCrud(ev) {
       const domains = parseListInput(payload.domain);
       if (!domains.length) throw new Error('至少需要一个证书域名');
       const idsToReplace = groupIds.length ? groupIds : (id ? [id] : []);
-      for (const oldId of idsToReplace) await api(`${cfg.base}/${oldId}`, { method: 'DELETE' });
-      for (let i = 0; i < domains.length; i += 1) {
-        const domain = domains[i];
-        await api(cfg.base, { method: 'POST', body: JSON.stringify({ ...payload, name: certNameForDomain(payload.name, domain, i, domains.length), domain }) });
-      }
+      const certificates = domains.map((domain, i) => ({ ...payload, name: certNameForDomain(payload.name, domain, i, domains.length), domain }));
+      await api(`${cfg.base}/bulk-replace`, { method: 'POST', body: JSON.stringify({ replace_ids: idsToReplace.map(Number), certificates }) });
     } else {
       await api(id ? `${cfg.base}/${id}` : cfg.base, { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
     }
     resetForm(form.id);
     await refreshAll();
     setDirty(true);
+    setFormMessage(form, kind === 'sni' ? 'SNI 规则已保存，预览 / 应用页会显示待应用。' : kind === 'cert' ? '证书已保存，预览 / 应用页会显示待应用。' : '已保存，预览 / 应用页会显示待应用。');
     toast(kind === 'sni' ? 'SNI 规则已保存' : kind === 'cert' ? '证书已保存' : `${kind} 已保存`);
-  } catch (err) { toast(err.message, true); }
+  } catch (err) {
+    setFormMessage(form, err.message, true);
+    toast(err.message, true);
+  } finally {
+    setSubmitting(form, false);
+  }
 }
 
 async function deleteItem(kind, id) {

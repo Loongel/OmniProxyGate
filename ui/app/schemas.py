@@ -200,6 +200,11 @@ class CertificateOut(ORMModel, CertificateIn):
     updated_at: datetime
 
 
+class CertificateBulkReplaceIn(BaseModel):
+    replace_ids: list[int] = Field(default_factory=list)
+    certificates: list[CertificateIn] = Field(min_length=1)
+
+
 class SniRouteIn(BaseModel):
     listener_id: int = 1
     name: str
