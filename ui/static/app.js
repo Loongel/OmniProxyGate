@@ -18,6 +18,10 @@ function toast(message, bad = false) {
   window.__toastTimer = setTimeout(() => box.classList.add('hidden'), 4200);
 }
 
+function formId(form) {
+  return form.getAttribute('id');
+}
+
 function setFormMessage(form, message = '', bad = false) {
   let box = form.querySelector('[data-form-message]');
   if (!box) {
@@ -66,7 +70,7 @@ async function api(path, options = {}) {
 }
 
 function formToObject(form) {
-  updateConditionalFields(form.id);
+  updateConditionalFields(formId(form));
   syncAlpnInput(form);
   const obj = {};
   Array.from(form.elements).forEach((el) => {
@@ -101,13 +105,13 @@ function alpnValues(value) {
 }
 
 function syncAlpnChips(form) {
-  if (!form || form.id !== 'sniForm') return;
+  if (!form || formId(form) !== 'sniForm') return;
   const values = new Set(alpnValues(form.elements.alpn.value));
   form.querySelectorAll('[data-alpn]').forEach(btn => btn.classList.toggle('selected', values.has(btn.dataset.alpn)));
 }
 
 function syncAlpnInput(form) {
-  if (!form || form.id !== 'sniForm') return;
+  if (!form || formId(form) !== 'sniForm') return;
   const values = Array.from(form.querySelectorAll('[data-alpn].selected')).map(btn => btn.dataset.alpn);
   form.elements.alpn.value = values.join(',');
 }
@@ -474,7 +478,8 @@ async function submitCrud(ev) {
   setFormMessage(form);
   setSubmitting(form, true);
   try {
-    const entry = endpointByForm(form.id);
+    const currentFormId = formId(form);
+    const entry = endpointByForm(currentFormId);
     if (!entry) return;
     const [kind, cfg] = entry;
     const id = form.elements.id ? form.elements.id.value : '';
@@ -498,7 +503,7 @@ async function submitCrud(ev) {
     } else {
       await api(id ? `${cfg.base}/${id}` : cfg.base, { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
     }
-    resetForm(form.id);
+    resetForm(currentFormId);
     await refreshAll();
     setDirty(true);
     setFormMessage(form, kind === 'sni' ? 'SNI 规则已保存，预览 / 应用页会显示待应用。' : kind === 'cert' ? '证书已保存，预览 / 应用页会显示待应用。' : '已保存，预览 / 应用页会显示待应用。');
