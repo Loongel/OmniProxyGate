@@ -47,6 +47,7 @@ def sample_objects():
         NS(id=4, listener_id=1, name="wildcard", enabled=True, sni="*.apps.example.com", alpn=None, priority=40, action="http_termination", backend_id=None),
         NS(id=5, listener_id=1, name="legacy-h1", enabled=True, sni="legacy.example.com", alpn="http/1.1", priority=50, action="http_termination", backend_id=None),
         NS(id=6, listener_id=1, name="frps", enabled=True, sni="hm.example.com", alpn=None, priority=60, action="tls_passthrough", backend_id=6),
+        NS(id=7, listener_id=1, name="multi", enabled=True, sni="a.example.com,*.multi.example.com", alpn="h2,http/1.1", priority=70, action="http_termination", backend_id=None),
     ]
     http_routes = [
         NS(id=1, name="ws", enabled=True, host="proxy.example.com", path="/ws", match_type="host_path", priority=10, backend_type="http", http_mode="websocket", backend_id=1, is_default_fallback=False),
@@ -65,6 +66,7 @@ def test_generate_contains_required_blocks():
     assert "set $nggm_stream_backend_backend_5 \"xray-reality:443\";" in generated.stream
     assert "~^(?:[^|.]+\\.)+apps\\.example\\.com\\|.*$" in generated.stream
     assert "~^legacy\\.example\\.com\\|(.*,)?http/1\\.1(,.*)?$" in generated.stream
+    assert "~^(?:a\\.example\\.com|(?:[^|.]+\\.)+multi\\.example\\.com)\\|(.*,)?(?:h2|http/1\\.1)(,.*)?$" in generated.stream
     assert "listen 0.0.0.0:443;" in generated.stream
     assert "listen [::]:443 ipv6only=on;" in generated.stream
     assert "set $nggm_http_backend_3 \"xray-grpc:10003\";" in generated.http

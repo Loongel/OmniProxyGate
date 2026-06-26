@@ -256,12 +256,6 @@ function backendSummary(id) {
   return `${escapeHtml(backendLabel(backend))} <span class="muted-text">#${backend.id}</span>`;
 }
 
-function routeNameForSni(baseName, sni, index, total) {
-  if (total <= 1) return baseName;
-  const suffix = sni.replace(/[^A-Za-z0-9_.-]/g, '-');
-  return `${baseName}-${index + 1}-${suffix}`.slice(0, 63);
-}
-
 function populateBackendSelects() {
   $$('select[data-backend-select]').forEach(select => {
     const current = select.value;
@@ -368,7 +362,9 @@ function groupSniRoutes() {
     const group = groups.get(key);
     group.ids.push(row.id);
     group.names.push(row.name);
-    group.sni_values.push(row.sni);
+    parseListInput(row.sni).forEach(sni => {
+      if (!group.sni_values.includes(sni)) group.sni_values.push(sni);
+    });
   });
   return Array.from(groups.values());
 }
@@ -489,10 +485,13 @@ async function submitCrud(ev) {
       const sniValues = parseListInput(payload.sni);
       if (!sniValues.length) throw new Error('至少需要一个 SNI 域名');
       const idsToReplace = groupIds.length ? groupIds : (id ? [id] : []);
-      for (const oldId of idsToReplace) await api(`${cfg.base}/${oldId}`, { method: 'DELETE' });
-      for (let i = 0; i < sniValues.length; i += 1) {
-        const sni = sniValues[i];
-        await api(cfg.base, { method: 'POST', body: JSON.stringify({ ...payload, name: routeNameForSni(payload.name, sni, i, sniValues.length), sni }) });
+      const sniPayload = { ...payload, sni: sniValues.join(',') };
+      if (idsToReplace.length > 1) {
+        for (const oldId of idsToReplace) await api(`${cfg.base}/${oldId}`, { method: 'DELETE' });
+        await api(cfg.base, { method: 'POST', body: JSON.stringify(sniPayload) });
+      } else {
+        const targetId = idsToReplace[0];
+        await api(targetId ? `${cfg.base}/${targetId}` : cfg.base, { method: targetId ? 'PUT' : 'POST', body: JSON.stringify(sniPayload) });
       }
     } else if (kind === 'cert') {
       const domains = parseListInput(payload.domain);

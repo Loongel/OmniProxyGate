@@ -108,7 +108,7 @@ Do not run `import` or `apply` before exporting a backup.
 | Read listener | `omni get listener` |
 | Read item by ID | `omni get backends 3` |
 | Create backend | `omni create backend ...` |
-| Create one/many SNI routes | `omni create sni --sni a,b,c ...` |
+| Create one/many SNI domains in one route | `omni create sni --sni a,b,c ...` |
 | Create HTTP/gRPC route | `omni create http ...` |
 | Register cert paths | `omni create cert ...` |
 | Delete object | `omni delete backends 3 --yes` |
@@ -138,7 +138,7 @@ omni create backend \
   --send-proxy-protocol
 ```
 
-Create multiple SNI routes that share one destination:
+Create one SNI route with multiple domains that share one destination:
 
 ```bash
 omni create sni \
@@ -207,7 +207,7 @@ omni doctor --json
 ## Safety Notes
 
 - Numeric IDs are allowed but not preferred. Use backend names with create commands.
-- `omni create sni --sni a,b,c` creates multiple API route records because the backend model stores one SNI per row. The Web UI groups same-destination routes visually.
+- `omni create sni --sni a,b,c` creates one API route record. The server stores the normalized SNI list and renders it as one Nginx stream map rule.
 - `omni import` replaces listener, backends, certificates, SNI routes, and HTTP routes. It does not replace users, sessions, or config version history.
 - `omni apply` executes the server-side Nginx test/reload path. If apply fails, inspect output and logs before retrying.
 - `OMNI_INSECURE=true` is only for private/local tests with self-signed certificates.

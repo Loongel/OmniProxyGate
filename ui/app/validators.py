@@ -55,6 +55,25 @@ def validate_domain(value: str | None, field: str = "domain", allow_empty: bool 
     return value
 
 
+def split_domain_list(value: str | None) -> list[str]:
+    if value is None:
+        return []
+    return [part.strip() for part in re.split(r"[\s,，;；]+", value) if part.strip()]
+
+
+def validate_domain_list(value: str | None, field: str = "domain") -> str:
+    domains = split_domain_list(value)
+    if not domains:
+        raise ValidationError(f"{field} is required")
+    checked: list[str] = []
+    for domain in domains:
+        normalized = validate_domain(domain, field)
+        assert normalized is not None
+        if normalized not in checked:
+            checked.append(normalized)
+    return ",".join(checked)
+
+
 def validate_backend_host(value: str, field: str = "host") -> str:
     value = value.strip()
     if not value:

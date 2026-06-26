@@ -290,21 +290,19 @@ def cmd_create_backend(args: argparse.Namespace) -> int:
 def cmd_create_sni(args: argparse.Namespace) -> int:
     client = client_from_args(args)
     backend_id = resolve_backend(client, args.backend)
-    created = []
     sni_values = split_values(args.sni)
-    for idx, sni in enumerate(sni_values, start=1):
-        payload = {
-            "listener_id": args.listener_id,
-            "name": args.name if len(sni_values) == 1 else f"{args.name}-{idx}",
-            "enabled": not args.disabled,
-            "sni": sni,
-            "alpn": args.alpn,
-            "priority": args.priority,
-            "action": args.action,
-            "backend_id": backend_id,
-        }
-        created.append(client.request("POST", "/api/sni-routes", data=payload))
-    print_json(created if len(created) > 1 else created[0])
+    payload = {
+        "listener_id": args.listener_id,
+        "name": args.name,
+        "enabled": not args.disabled,
+        "sni": ",".join(sni_values),
+        "alpn": args.alpn,
+        "priority": args.priority,
+        "action": args.action,
+        "backend_id": backend_id,
+    }
+    result = client.request("POST", "/api/sni-routes", data=payload)
+    print_json(result)
     return 0
 
 

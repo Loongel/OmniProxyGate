@@ -47,6 +47,35 @@ def _domain_to_regex(domain: str) -> str:
     return re.escape(domain)
 
 
+def _split_route_values(value: Optional[str]) -> list[str]:
+    if not value:
+        return []
+    values: list[str] = []
+    for part in re.split(r"[\s,，;；]+", value):
+        item = part.strip()
+        if item and item not in values:
+            values.append(item)
+    return values
+
+
+def _domains_to_regex(domains: str) -> str:
+    parts = [_domain_to_regex(domain) for domain in _split_route_values(domains)]
+    if not parts:
+        return re.escape("")
+    if len(parts) == 1:
+        return parts[0]
+    return "(?:" + "|".join(parts) + ")"
+
+
+def _alpn_to_regex(alpn: str) -> str:
+    parts = [re.escape(value) for value in _split_route_values(alpn)]
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    return "(?:" + "|".join(parts) + ")"
+
+
 def _nginx_server_name(domain: Optional[str]) -> str:
     return domain or "_"
 
@@ -219,10 +248,10 @@ class NginxConfigGenerator:
             sni = _get(route, "sni")
             alpn = (_get(route, "alpn", None) or "").strip()
             route_key = remember_route_key(self._route_key_for_sni_action(_get(route, "action"), _get(route, "backend_id", None)))
-            sni_regex = _domain_to_regex(sni)
+            sni_regex = _domains_to_regex(sni)
             if alpn:
                 # ssl_preread_alpn_protocols is a comma-separated list. Route-level ALPN is optional.
-                alpn_regex = re.escape(alpn)
+                alpn_regex = _alpn_to_regex(alpn)
                 pattern = rf"~^{sni_regex}\|(.*,)?{alpn_regex}(,.*)?$"
             else:
                 pattern = rf"~^{sni_regex}\|.*$"

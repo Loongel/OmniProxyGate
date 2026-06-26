@@ -16,6 +16,7 @@ from .validators import (
     validate_backend_host,
     validate_backend_name,
     validate_domain,
+    validate_domain_list,
     validate_file_path,
     validate_path,
     validate_port,
@@ -223,9 +224,7 @@ class SniRouteIn(BaseModel):
     @field_validator("sni")
     @classmethod
     def sni_valid(cls, value: str) -> str:
-        checked = validate_domain(value)
-        assert checked is not None
-        return checked
+        return validate_domain_list(value, "sni")
 
     @field_validator("action")
     @classmethod
