@@ -1,6 +1,7 @@
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
-const state = { initialized: false, authenticated: false, listener: null, backends: [], certs: [], sni: [], http: [], versions: [], table: {}, dirty: false };
+const state = { initialized: false, authenticated: false, listener: null, backends: [], certs: [], sni: [], http: [], versions: [], table: {}, dirty: false, drawerFormId: null, lastEdited: null };
+const formLabels = { backend: '后端', cert: '证书', sni: 'SNI 规则', http: 'HTTP 路由' };
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -12,8 +13,6 @@ function toast(message, bad = false) {
   box.classList.remove('hidden');
   box.classList.toggle('toast-bad', bad);
   box.classList.toggle('toast-good', !bad);
-  box.style.background = bad ? '#450a0a' : '#022c22';
-  box.style.borderColor = bad ? '#ef4444' : '#14b8a6';
   clearTimeout(window.__toastTimer);
   window.__toastTimer = setTimeout(() => box.classList.add('hidden'), 4200);
 }
@@ -52,7 +51,12 @@ function setSubmitting(form, submitting) {
 function setDirty(value) {
   state.dirty = Boolean(value);
   const badge = $('#dirtyBadge');
+  const pill = $('#dirtyPill');
   if (badge) badge.classList.toggle('hidden', !state.dirty);
+  if (pill) {
+    pill.classList.toggle('hidden', !state.dirty);
+    pill.textContent = state.dirty ? '有待应用配置' : '待应用';
+  }
 }
 
 async function api(path, options = {}) {
@@ -71,6 +75,7 @@ async function api(path, options = {}) {
 
 function formToObject(form) {
   updateConditionalFields(formId(form));
+  commitListEditors(form);
   syncAlpnInput(form);
   const obj = {};
   Array.from(form.elements).forEach((el) => {
@@ -87,6 +92,76 @@ function formToObject(form) {
 
 function parseListInput(value) {
   return [...new Set(String(value || '').split(/[\s,，;；]+/).map(v => v.trim()).filter(Boolean))];
+}
+
+function debounce(fn, ms = 220) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
+function listEditorValues(editor) {
+  return Array.from(editor.querySelectorAll('[data-list-value]')).map(el => el.dataset.listValue);
+}
+
+function renderListEditor(editor, values) {
+  const unique = [...new Set(values.map(v => String(v || '').trim()).filter(Boolean))];
+  const input = editor.querySelector('[data-list-entry]');
+  editor.querySelectorAll('[data-list-value]').forEach(el => el.remove());
+  unique.forEach(value => {
+    const chip = document.createElement('span');
+    chip.className = 'list-token';
+    chip.dataset.listValue = value;
+    chip.innerHTML = `${escapeHtml(value)} <button type="button" data-list-remove="${escapeHtml(value)}" aria-label="移除 ${escapeHtml(value)}">×</button>`;
+    editor.insertBefore(chip, input);
+  });
+}
+
+function syncListEditorToSource(editor) {
+  const source = document.getElementById(editor.dataset.listSource);
+  if (source) source.value = listEditorValues(editor).join('\n');
+}
+
+function syncListSourceToEditor(source) {
+  const editor = document.querySelector(`[data-list-source="${source.id}"]`);
+  if (!editor) return;
+  renderListEditor(editor, parseListInput(source.value));
+  syncListEditorToSource(editor);
+}
+
+function commitListEditors(form) {
+  (form ? Array.from(form.querySelectorAll('[data-list-input]')) : $$('[data-list-input]')).forEach(source => {
+    const editor = document.querySelector(`[data-list-source="${source.id}"]`);
+    const entry = editor?.querySelector('[data-list-entry]');
+    if (entry && entry.value.trim()) {
+      renderListEditor(editor, [...listEditorValues(editor), entry.value.trim()]);
+      entry.value = '';
+    }
+    if (editor) syncListEditorToSource(editor);
+    else syncListSourceToEditor(source);
+  });
+}
+
+function refreshListEditors(form) {
+  (form ? Array.from(form.querySelectorAll('[data-list-input]')) : $$('[data-list-input]')).forEach(syncListSourceToEditor);
+}
+
+function enhanceListInputs() {
+  $$('[data-list-input]').forEach((source, index) => {
+    if (source.dataset.listEnhanced) return;
+    if (!source.id) source.id = `${source.name || 'list'}ListSource${index}`;
+    source.dataset.listEnhanced = 'true';
+    source.classList.add('list-source');
+    const editor = document.createElement('div');
+    editor.className = 'list-editor';
+    editor.dataset.listSource = source.id;
+    editor.innerHTML = '<input data-list-entry type="text" autocomplete="off" placeholder="输入后按 Enter 添加" />';
+    source.insertAdjacentElement('afterend', editor);
+    renderListEditor(editor, parseListInput(source.value));
+    syncListEditorToSource(editor);
+  });
 }
 
 function groupIdsFromForm(form) {
@@ -122,10 +197,11 @@ function fillForm(formId, obj) {
     else if (el.name === 'sni' && Array.isArray(value)) el.value = value.join('\n');
     else el.value = value == null ? '' : value;
   });
+  refreshListEditors(form);
   syncAlpnChips(form);
   updateConditionalFields(formId);
   updateFormMode(formId);
-  window.scrollTo({ top: form.getBoundingClientRect().top + window.scrollY - 110, behavior: 'smooth' });
+  if (!state.drawerFormId) window.scrollTo({ top: form.getBoundingClientRect().top + window.scrollY - 110, behavior: 'smooth' });
 }
 
 function resetForm(id) {
@@ -159,12 +235,65 @@ function resetForm(id) {
     form.elements.path.value = '/';
     form.elements.extra_options.value = '{}';
   }
+  refreshListEditors(form);
   updateConditionalFields(id);
   updateFormMode(id);
 }
 
+function openDrawer(kind, title) {
+  const cfg = endpoints[kind];
+  if (!cfg) return;
+  if (state.drawerFormId && state.drawerFormId !== cfg.form) closeDrawer(true);
+  const drawer = $('#editorDrawer');
+  const body = $('#drawerBody');
+  const overlay = $('#drawerOverlay');
+  const form = document.getElementById(cfg.form);
+  const mode = document.getElementById(`${cfg.form.replace('Form', '')}FormMode`);
+  if (mode) body.appendChild(mode);
+  body.appendChild(form);
+  $('#drawerTitle').textContent = title || formLabels[kind] || '编辑';
+  drawer.classList.remove('hidden');
+  overlay.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    drawer.classList.add('open');
+    overlay.classList.add('open');
+    const first = form.querySelector('input:not([type="hidden"]), select, textarea, button');
+    if (first) first.focus({ preventScroll: true });
+  });
+  state.drawerFormId = cfg.form;
+  document.body.classList.add('drawer-active');
+}
+
+function closeDrawer(immediate = false) {
+  const formId = state.drawerFormId;
+  if (!formId) return;
+  const drawer = $('#editorDrawer');
+  const overlay = $('#drawerOverlay');
+  const form = document.getElementById(formId);
+  const mode = document.getElementById(`${formId.replace('Form', '')}FormMode`);
+  const dock = document.getElementById(`${formId.replace('Form', '')}FormDock`);
+  drawer.classList.remove('open');
+  overlay.classList.remove('open');
+  if (dock && mode && form) {
+    dock.appendChild(mode);
+    dock.appendChild(form);
+  }
+  const finishClose = () => {
+    drawer.classList.add('hidden');
+    overlay.classList.add('hidden');
+  };
+  if (immediate) finishClose();
+  else setTimeout(finishClose, 180);
+  state.drawerFormId = null;
+  document.body.classList.remove('drawer-active');
+}
+
 function actionButtons(kind, item) {
   return `<button class="muted" data-edit="${kind}" data-id="${item.id}">编辑</button> <button class="danger" data-delete="${kind}" data-id="${item.id}">删除</button>`;
+}
+
+function badge(text, variant = 'neutral') {
+  return `<span class="badge badge-${variant}">${escapeHtml(text)}</span>`;
 }
 
 function cellText(column, row) {
@@ -219,7 +348,7 @@ function renderTableByTarget(target) {
   if (target === 'backendsTable') {
     renderTable('backendsTable', [
       { key: 'id', label: 'ID' }, { key: 'name', label: '名称' }, { key: 'host', label: '地址' }, { key: 'port', label: '端口' }, { key: 'protocol', label: '协议' },
-      { key: 'tls_to_backend', label: 'TLS', render: r => r.tls_to_backend ? '是' : '否' }, { key: 'send_proxy_protocol', label: 'PROXY', render: r => r.send_proxy_protocol ? '是' : '否' }, { key: 'read_timeout', label: '读超时' }
+      { key: 'tls_to_backend', label: 'TLS', render: r => badge(r.tls_to_backend ? '启用' : '关闭', r.tls_to_backend ? 'success' : 'neutral') }, { key: 'send_proxy_protocol', label: 'PROXY', render: r => badge(r.send_proxy_protocol ? '发送' : '关闭', r.send_proxy_protocol ? 'info' : 'neutral') }, { key: 'read_timeout', label: '读超时' }
     ], state.backends, 'backend');
   } else if (target === 'certsTable') {
     renderCertTable();
@@ -227,7 +356,7 @@ function renderTableByTarget(target) {
     renderSniTable();
   } else if (target === 'httpTable') {
     renderTable('httpTable', [
-      { key: 'id', label: 'ID' }, { key: 'enabled', label: '启用', render: r => r.enabled ? '是' : '否' }, { key: 'priority', label: '优先级' }, { key: 'host', label: 'Host' },
+      { key: 'id', label: 'ID' }, { key: 'enabled', label: '启用', render: r => badge(r.enabled ? '启用' : '禁用', r.enabled ? 'success' : 'neutral') }, { key: 'priority', label: '优先级' }, { key: 'host', label: 'Host' },
       { key: 'path', label: 'Path' }, { key: 'match_type', label: '匹配' }, { key: 'backend_type', label: '后端类型' }, { key: 'http_mode', label: 'HTTP 模式' }, { key: 'backend_id', label: '目标后端', render: r => backendSummary(r.backend_id) }
     ], state.http, 'http');
   }
@@ -369,11 +498,11 @@ function renderSniTable() {
   const rows = groupSniRoutes();
   const columns = [
     { key: 'ids', label: 'ID', render: r => r.ids.map(escapeHtml).join(', '), text: r => r.ids.join(' ') },
-    { key: 'enabled', label: '启用', render: r => r.enabled ? '是' : '否' },
+    { key: 'enabled', label: '启用', render: r => badge(r.enabled ? '启用' : '禁用', r.enabled ? 'success' : 'neutral') },
     { key: 'priority', label: '优先级' },
     { key: 'sni_values', label: 'SNI', render: r => `<div class="chip-list">${r.sni_values.map(v => `<span class="mini-chip">${escapeHtml(v)}</span>`).join('')}</div>`, text: r => r.sni_values.join(' ') },
     { key: 'alpn', label: 'ALPN', render: r => r.alpn ? `<div class="chip-list">${alpnValues(r.alpn).map(v => `<span class="mini-chip accent">${escapeHtml(v)}</span>`).join('')}</div>` : '<span class="muted-text">不限</span>' },
-    { key: 'action', label: '动作' },
+    { key: 'action', label: '动作', render: r => badge(r.action, r.action === 'reject' ? 'danger' : r.action === 'http_termination' ? 'info' : 'warning') },
     { key: 'backend_id', label: '目标后端', render: r => backendSummary(r.backend_id), text: r => backendLabel(backendById(r.backend_id)) },
   ];
   const displayRows = prepareRows('sniTable', columns, rows);
@@ -392,6 +521,7 @@ async function loadAuthState() {
   const auth = await api('/api/auth/state');
   Object.assign(state, auth);
   $('#authStatus').textContent = auth.authenticated ? `已登录：${auth.username}` : (auth.initialized ? '未登录' : '未初始化');
+  $('#logoutBtn').classList.toggle('hidden', !auth.authenticated);
   $('#authPanel').classList.toggle('hidden', auth.authenticated);
   $('#appPanel').classList.toggle('hidden', !auth.authenticated);
   $('#authTitle').textContent = auth.initialized ? '登录' : '初始化管理员';
@@ -504,6 +634,7 @@ async function submitCrud(ev) {
       await api(id ? `${cfg.base}/${id}` : cfg.base, { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
     }
     resetForm(currentFormId);
+    closeDrawer();
     await refreshAll();
     setDirty(true);
     setFormMessage(form, kind === 'sni' ? 'SNI 规则已保存，预览 / 应用页会显示待应用。' : kind === 'cert' ? '证书已保存，预览 / 应用页会显示待应用。' : '已保存，预览 / 应用页会显示待应用。');
@@ -557,6 +688,7 @@ function editSniGroup(ids) {
   const items = state.sni.filter(x => idList.includes(String(x.id)));
   if (!items.length) return;
   const first = items[0];
+  openDrawer('sni', '编辑 SNI 规则组');
   fillForm('sniForm', { ...first, id: first.id, group_ids: idList.join(','), name: first.names ? first.names[0] : first.name.replace(/-\d+-.*$/, ''), sni: items.map(x => x.sni), alpn: first.alpn || '' });
 }
 
@@ -565,6 +697,7 @@ function editCertGroup(ids) {
   const items = state.certs.filter(x => idList.includes(String(x.id)));
   if (!items.length) return;
   const first = items[0];
+  openDrawer('cert', '编辑证书组');
   fillForm('certForm', { ...first, id: first.id, group_ids: idList.join(','), name: first.names ? first.names[0] : first.name.replace(/-\d+-.*$/, ''), domain: items.flatMap(x => parseListInput(x.domain)) });
 }
 
@@ -585,6 +718,7 @@ function editItem(kind, id) {
   const cfg = endpoints[kind];
   const item = cfg.data().find(x => String(x.id) === String(id));
   if (!item) return;
+  openDrawer(kind, `编辑${formLabels[kind] || ''}`);
   fillForm(cfg.form, item);
 }
 
@@ -652,6 +786,7 @@ async function importConfig(file) {
 }
 
 function initEvents() {
+  enhanceListInputs();
   $('#authForm').addEventListener('submit', submitAuth);
   $('#listenerForm').addEventListener('submit', submitListener);
   ['backendForm', 'certForm', 'sniForm', 'httpForm'].forEach(id => document.getElementById(id).addEventListener('submit', submitCrud));
@@ -660,6 +795,13 @@ function initEvents() {
     form.addEventListener('change', () => updateConditionalFields(id));
   });
   $$('[data-reset]').forEach(btn => btn.addEventListener('click', () => resetForm(btn.dataset.reset)));
+  $$('[data-new]').forEach(btn => btn.addEventListener('click', () => {
+    const kind = btn.dataset.new;
+    const cfg = endpoints[kind];
+    if (!cfg) return;
+    resetForm(cfg.form);
+    openDrawer(kind, `新建${formLabels[kind] || ''}`);
+  }));
   $$('.tabs button[data-tab]').forEach(btn => btn.addEventListener('click', () => {
     $$('.tabs button[data-tab]').forEach(b => b.classList.remove('active'));
     $$('.tabs button[data-tab]').forEach(b => b.setAttribute('aria-selected', 'false'));
@@ -677,6 +819,8 @@ function initEvents() {
     const editCertGroupBtn = ev.target.closest('[data-edit-cert-group]');
     const sortDir = ev.target.closest('[data-table-dir]');
     const rb = ev.target.closest('[data-rollback]');
+    const jump = ev.target.closest('[data-tab-jump]');
+    const remove = ev.target.closest('[data-list-remove]');
     if (edit) editItem(edit.dataset.edit, edit.dataset.id);
     if (del) deleteItem(del.dataset.delete, del.dataset.id);
     if (delSniGroup) deleteSniGroup(delSniGroup.dataset.deleteSniGroup);
@@ -685,10 +829,36 @@ function initEvents() {
     if (editCertGroupBtn) editCertGroup(editCertGroupBtn.dataset.editCertGroup);
     if (sortDir) { const target = sortDir.dataset.tableDir; const ts = tableState(target); ts.dir = ts.dir === 'desc' ? 'asc' : 'desc'; refreshTableControl(target); }
     if (rb) rollback(rb.dataset.rollback);
+    if (jump) document.querySelector(`.tabs button[data-tab="${jump.dataset.tabJump}"]`)?.click();
+    if (remove) {
+      const editor = remove.closest('[data-list-source]');
+      remove.closest('[data-list-value]')?.remove();
+      if (editor) syncListEditorToSource(editor);
+    }
   });
+  const debouncedSearch = debounce((target, value) => {
+    tableState(target).q = value;
+    refreshTableControl(target, true);
+  }, 220);
   document.body.addEventListener('input', (ev) => {
     const search = ev.target.closest('[data-table-search]');
-    if (search) { tableState(search.dataset.tableSearch).q = search.value; refreshTableControl(search.dataset.tableSearch, true); }
+    const listEntry = ev.target.closest('[data-list-entry]');
+    if (search) debouncedSearch(search.dataset.tableSearch, search.value);
+    if (listEntry) listEntry.dataset.draft = listEntry.value;
+  });
+  document.body.addEventListener('keydown', (ev) => {
+    const listEntry = ev.target.closest('[data-list-entry]');
+    if (listEntry && (ev.key === 'Enter' || ev.key === ',')) {
+      const value = listEntry.value.trim().replace(/[,，;；]+$/, '');
+      if (value) {
+        ev.preventDefault();
+        const editor = listEntry.closest('[data-list-source]');
+        renderListEditor(editor, [...listEditorValues(editor), value]);
+        syncListEditorToSource(editor);
+        listEntry.value = '';
+      }
+    }
+    if (ev.key === 'Escape' && state.drawerFormId) closeDrawer();
   });
   document.body.addEventListener('change', (ev) => {
     const sort = ev.target.closest('[data-table-sort]');
@@ -707,6 +877,8 @@ function initEvents() {
     importConfig(ev.currentTarget.files[0]);
     ev.currentTarget.value = '';
   });
+  $('#drawerClose').addEventListener('click', closeDrawer);
+  $('#drawerOverlay').addEventListener('click', closeDrawer);
   $('#logoutBtn').addEventListener('click', async () => {
     await api('/api/auth/logout', { method: 'POST', body: '{}' });
     await loadAuthState();

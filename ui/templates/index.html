@@ -8,11 +8,15 @@
 </head>
 <body>
   <header class="topbar">
-    <div>
+    <div class="brand-block">
       <h1>OmniProxyGate</h1>
       <p>通用型入口代理与分流管理工具</p>
     </div>
-    <div class="auth-status" id="authStatus"></div>
+    <div class="topbar-actions">
+      <button id="dirtyPill" class="dirty-pill hidden" type="button" data-tab-jump="config">待应用</button>
+      <div class="auth-status" id="authStatus"></div>
+      <button id="logoutBtn" class="muted hidden" type="button">退出</button>
+    </div>
   </header>
 
   <main>
@@ -34,7 +38,6 @@
         <button data-tab="sni" role="tab" aria-selected="false" aria-controls="tab-sni">SNI 分流</button>
         <button data-tab="http" role="tab" aria-selected="false" aria-controls="tab-http">HTTP 路由</button>
         <button data-tab="config" role="tab" aria-selected="false" aria-controls="tab-config">预览 / 应用 <span id="dirtyBadge" class="status-badge hidden">待应用</span></button>
-        <button id="logoutBtn" class="muted">退出</button>
       </nav>
 
       <section id="tab-listener" class="tab card active" role="tabpanel">
@@ -73,138 +76,176 @@
       </section>
 
       <section id="tab-backends" class="tab card" role="tabpanel">
-        <h2>后端管理</h2>
-        <p id="backendFormMode" class="form-mode">新建后端</p>
-        <form id="backendForm" class="grid-form">
-          <input name="id" type="hidden" />
-          <label>名称 <input name="name" required /></label>
-          <label>地址 <input name="host" required placeholder="xray-ws 或 10.0.0.2" /></label>
-          <label>端口 <input name="port" type="number" min="1" max="65535" required /></label>
-          <label>协议
-            <select name="protocol">
-              <option value="http">http</option>
-              <option value="https">https</option>
-              <option value="grpc">grpc</option>
-              <option value="grpcs">grpcs</option>
-              <option value="h2c">h2c</option>
-              <option value="tcp_tls">tcp_tls</option>
-            </select>
-          </label>
-          <label>Keepalive <input name="keepalive" type="number" min="0" value="32" /></label>
-          <label>连接超时秒 <input name="connect_timeout" type="number" min="1" value="60" /></label>
-          <label>读取超时秒 <input name="read_timeout" type="number" min="1" value="3600" /></label>
-          <label>发送超时秒 <input name="send_timeout" type="number" min="1" value="3600" /></label>
-          <label class="checkbox"><input name="tls_to_backend" type="checkbox" /> 到后端启用 TLS</label>
-          <label class="checkbox"><input name="send_proxy_protocol" type="checkbox" /> Stream 转发时发送 PROXY protocol</label>
-          <label class="checkbox"><input name="preserve_host" type="checkbox" checked /> 保留 Host</label>
-          <label class="checkbox"><input name="forward_real_ip" type="checkbox" checked /> 转发真实 IP</label>
-          <label class="wide">extra_options JSON <textarea name="extra_options" rows="2">{}</textarea></label>
-          <button type="submit" class="primary">保存后端</button>
-          <button type="button" class="muted" data-reset="backendForm">清空</button>
-        </form>
+        <div class="section-head">
+          <div>
+            <h2>后端管理</h2>
+            <p>定义 NPM、3XUI、FRPS 等实际流量目标。</p>
+          </div>
+          <button type="button" class="primary" data-new="backend">新建后端</button>
+        </div>
+        <div id="backendFormDock" class="form-dock hidden">
+          <p id="backendFormMode" class="form-mode">新建后端</p>
+          <form id="backendForm" class="grid-form">
+            <input name="id" type="hidden" />
+            <label>名称 <input name="name" required /></label>
+            <label>地址 <input name="host" required placeholder="xray-ws 或 10.0.0.2" /></label>
+            <label>端口 <input name="port" type="number" min="1" max="65535" required /></label>
+            <label>协议
+              <select name="protocol">
+                <option value="http">http</option>
+                <option value="https">https</option>
+                <option value="grpc">grpc</option>
+                <option value="grpcs">grpcs</option>
+                <option value="h2c">h2c</option>
+                <option value="tcp_tls">tcp_tls</option>
+              </select>
+            </label>
+            <label>Keepalive <input name="keepalive" type="number" min="0" value="32" /></label>
+            <label>连接超时秒 <input name="connect_timeout" type="number" min="1" value="60" /></label>
+            <label>读取超时秒 <input name="read_timeout" type="number" min="1" value="3600" /></label>
+            <label>发送超时秒 <input name="send_timeout" type="number" min="1" value="3600" /></label>
+            <label class="checkbox"><input name="tls_to_backend" type="checkbox" /> 到后端启用 TLS</label>
+            <label class="checkbox"><input name="send_proxy_protocol" type="checkbox" /> Stream 转发时发送 PROXY protocol</label>
+            <label class="checkbox"><input name="preserve_host" type="checkbox" checked /> 保留 Host</label>
+            <label class="checkbox"><input name="forward_real_ip" type="checkbox" checked /> 转发真实 IP</label>
+            <details class="advanced wide">
+              <summary>高级选项</summary>
+              <label>extra_options JSON <textarea name="extra_options" rows="2">{}</textarea></label>
+            </details>
+            <button type="submit" class="primary">保存后端</button>
+            <button type="button" class="muted" data-reset="backendForm">清空</button>
+          </form>
+        </div>
         <div id="backendsTable" class="table-wrap"></div>
       </section>
 
       <section id="tab-certs" class="tab card" role="tabpanel">
-        <h2>证书管理</h2>
-        <p id="certFormMode" class="form-mode">新建证书</p>
-        <form id="certForm" class="grid-form" novalidate>
-          <input name="id" type="hidden" />
-          <input name="group_ids" type="hidden" />
-          <label>名称 <input name="name" required /></label>
-          <label class="wide">证书域名
-            <textarea name="domain" rows="2" required placeholder="proxy.example.com, *.example.com"></textarea>
-            <span class="field-help">同一证书路径可绑定多个域名，支持换行、逗号、空格分隔；列表会按证书路径聚合展示。</span>
-          </label>
-          <label>证书路径 <input name="cert_path" required value="/etc/nginx/certs/default.crt" /></label>
-          <label>私钥路径 <input name="key_path" required value="/etc/nginx/certs/default.key" /></label>
-          <label class="checkbox"><input name="managed_by_system" type="checkbox" /> 系统托管</label>
-          <button type="submit" class="primary">保存证书</button>
-          <button type="button" class="muted" data-reset="certForm">清空</button>
-        </form>
+        <div class="section-head">
+          <div>
+            <h2>证书管理</h2>
+            <p>把同一证书路径下的多个域名作为一组维护。</p>
+          </div>
+          <button type="button" class="primary" data-new="cert">新建证书</button>
+        </div>
+        <div id="certFormDock" class="form-dock hidden">
+          <p id="certFormMode" class="form-mode">新建证书</p>
+          <form id="certForm" class="grid-form" novalidate>
+            <input name="id" type="hidden" />
+            <input name="group_ids" type="hidden" />
+            <label>名称 <input name="name" required /></label>
+            <label class="wide">证书域名
+              <textarea name="domain" rows="2" required placeholder="proxy.example.com, *.example.com" data-list-input="domain"></textarea>
+              <span class="field-help">输入域名后按 Enter 添加；同一证书路径可绑定多个域名。</span>
+            </label>
+            <label>证书路径 <input name="cert_path" required value="/etc/nginx/certs/default.crt" /></label>
+            <label>私钥路径 <input name="key_path" required value="/etc/nginx/certs/default.key" /></label>
+            <label class="checkbox"><input name="managed_by_system" type="checkbox" /> 系统托管</label>
+            <button type="submit" class="primary">保存证书</button>
+            <button type="button" class="muted" data-reset="certForm">清空</button>
+          </form>
+        </div>
         <div id="certsTable" class="table-wrap"></div>
       </section>
 
       <section id="tab-sni" class="tab card" role="tabpanel">
-        <h2>SNI 分流规则</h2>
-        <p id="sniFormMode" class="form-mode">新建 SNI 规则</p>
-        <form id="sniForm" class="grid-form">
-          <input name="id" type="hidden" />
-          <input name="group_ids" type="hidden" />
-          <input name="listener_id" type="hidden" value="1" />
-          <label>名称 <input name="name" required /></label>
-          <label class="wide">SNI 域名
-            <textarea name="sni" rows="2" required placeholder="reality.example.com&#10;或：a.example.com, b.example.com"></textarea>
-            <span class="field-help">可填一个或多个 SNI，支持换行、逗号、空格分隔；保存为同一条配置规则。</span>
-          </label>
-          <label class="wide">ALPN
-            <input name="alpn" type="hidden" />
-            <div class="chip-options" data-alpn-options>
-              <button type="button" class="chip" data-alpn="h2">h2</button>
-              <button type="button" class="chip" data-alpn="http/1.1">http/1.1</button>
-              <button type="button" class="chip" data-alpn="h3">h3</button>
-            </div>
-            <span class="field-help">可多选，顺序按 h2、http/1.1、h3 保存；不选表示不限制 ALPN。</span>
-          </label>
-          <label>优先级 <input name="priority" type="number" value="100" /></label>
-          <label>动作
-            <select name="action">
-              <option value="http_termination">进入 HTTP 终止层</option>
-              <option value="tls_passthrough">TLS 透传</option>
-              <option value="reject">拒绝</option>
-            </select>
-          </label>
-          <label data-field="backend_id">透传后端
-            <select name="backend_id" data-backend-select data-placeholder="TLS 透传需要"></select>
-            <span class="field-help">只有 TLS 透传规则会使用后端。</span>
-          </label>
-          <label class="checkbox"><input name="enabled" type="checkbox" checked /> 启用</label>
-          <button type="submit" class="primary">保存 SNI 规则</button>
-          <button type="button" class="muted" data-reset="sniForm">清空</button>
-        </form>
+        <div class="section-head">
+          <div>
+            <h2>SNI 分流规则</h2>
+            <p>按 SNI、ALPN 和流向把入口连接转发到对应后端。</p>
+          </div>
+          <button type="button" class="primary" data-new="sni">新建 SNI 规则</button>
+        </div>
+        <div id="sniFormDock" class="form-dock hidden">
+          <p id="sniFormMode" class="form-mode">新建 SNI 规则</p>
+          <form id="sniForm" class="grid-form" novalidate>
+            <input name="id" type="hidden" />
+            <input name="group_ids" type="hidden" />
+            <input name="listener_id" type="hidden" value="1" />
+            <label>名称 <input name="name" required /></label>
+            <label class="wide">SNI 域名
+              <textarea name="sni" rows="2" required placeholder="reality.example.com&#10;或：a.example.com, b.example.com" data-list-input="sni"></textarea>
+              <span class="field-help">输入 SNI 后按 Enter 添加；多个 SNI 会保存为同一条规则。</span>
+            </label>
+            <label class="wide">ALPN
+              <input name="alpn" type="hidden" />
+              <div class="chip-options" data-alpn-options>
+                <button type="button" class="chip" data-alpn="h2">h2</button>
+                <button type="button" class="chip" data-alpn="http/1.1">http/1.1</button>
+                <button type="button" class="chip" data-alpn="h3">h3</button>
+              </div>
+              <span class="field-help">可多选；不选表示不限制 ALPN。</span>
+            </label>
+            <label>优先级 <input name="priority" type="number" value="100" /></label>
+            <label>动作
+              <select name="action">
+                <option value="http_termination">进入 HTTP 终止层</option>
+                <option value="tls_passthrough">TLS 透传</option>
+                <option value="reject">拒绝</option>
+              </select>
+            </label>
+            <label data-field="backend_id">透传后端
+              <select name="backend_id" data-backend-select data-placeholder="TLS 透传需要"></select>
+              <span class="field-help">只有 TLS 透传规则会使用后端。</span>
+            </label>
+            <label class="checkbox"><input name="enabled" type="checkbox" checked /> 启用</label>
+            <button type="submit" class="primary">保存 SNI 规则</button>
+            <button type="button" class="muted" data-reset="sniForm">清空</button>
+          </form>
+        </div>
         <div id="sniTable" class="table-wrap"></div>
       </section>
 
       <section id="tab-http" class="tab card" role="tabpanel">
-        <h2>HTTP 路由规则</h2>
-        <p id="httpFormMode" class="form-mode">新建 HTTP 路由</p>
-        <form id="httpForm" class="grid-form">
-          <input name="id" type="hidden" />
-          <label>名称 <input name="name" required /></label>
-          <label>Host <input name="host" placeholder="proxy.example.com" /></label>
-          <label>Path <input name="path" value="/" /></label>
-          <label>匹配方式
-            <select name="match_type">
-              <option value="host_path">Host + Path</option>
-              <option value="host">Host</option>
-              <option value="path">Path</option>
-              <option value="default">默认 fallback</option>
-            </select>
-          </label>
-          <label>优先级 <input name="priority" type="number" value="100" /></label>
-          <label>后端类型
-            <select name="backend_type">
-              <option value="http">HTTP 类</option>
-              <option value="grpc">gRPC 类</option>
-            </select>
-          </label>
-          <label>HTTP 模式
-            <select name="http_mode">
-              <option value="normal">普通 HTTP</option>
-              <option value="websocket">WebSocket / 自动 Upgrade</option>
-              <option value="xhttp_stream">XHTTP / SplitHTTP / 流式</option>
-            </select>
-          </label>
-          <label data-field="backend_id">后端
-            <select name="backend_id" data-backend-select required></select>
-            <span class="field-help">选择已定义的后端，提交时仍保存为 backend_id。</span>
-          </label>
-          <label class="checkbox"><input name="enabled" type="checkbox" checked /> 启用</label>
-          <label class="checkbox"><input name="is_default_fallback" type="checkbox" /> 默认 fallback</label>
-          <label class="wide">extra_options JSON <textarea name="extra_options" rows="2">{}</textarea></label>
-          <button type="submit" class="primary">保存 HTTP 路由</button>
-          <button type="button" class="muted" data-reset="httpForm">清空</button>
-        </form>
+        <div class="section-head">
+          <div>
+            <h2>HTTP 路由规则</h2>
+            <p>在 HTTP 终止层按 Host、Path、gRPC、XHTTP 分流。</p>
+          </div>
+          <button type="button" class="primary" data-new="http">新建 HTTP 路由</button>
+        </div>
+        <div id="httpFormDock" class="form-dock hidden">
+          <p id="httpFormMode" class="form-mode">新建 HTTP 路由</p>
+          <form id="httpForm" class="grid-form">
+            <input name="id" type="hidden" />
+            <label>名称 <input name="name" required /></label>
+            <label>Host <input name="host" placeholder="proxy.example.com" /></label>
+            <label>Path <input name="path" value="/" /></label>
+            <label>匹配方式
+              <select name="match_type">
+                <option value="host_path">Host + Path</option>
+                <option value="host">Host</option>
+                <option value="path">Path</option>
+                <option value="default">默认 fallback</option>
+              </select>
+            </label>
+            <label>优先级 <input name="priority" type="number" value="100" /></label>
+            <label>后端类型
+              <select name="backend_type">
+                <option value="http">HTTP 类</option>
+                <option value="grpc">gRPC 类</option>
+              </select>
+            </label>
+            <label>HTTP 模式
+              <select name="http_mode">
+                <option value="normal">普通 HTTP</option>
+                <option value="websocket">WebSocket / 自动 Upgrade</option>
+                <option value="xhttp_stream">XHTTP / SplitHTTP / 流式</option>
+              </select>
+            </label>
+            <label data-field="backend_id">后端
+              <select name="backend_id" data-backend-select required></select>
+              <span class="field-help">选择已定义的后端，提交时仍保存为 backend_id。</span>
+            </label>
+            <label class="checkbox"><input name="enabled" type="checkbox" checked /> 启用</label>
+            <label class="checkbox"><input name="is_default_fallback" type="checkbox" /> 默认 fallback</label>
+            <details class="advanced wide">
+              <summary>高级选项</summary>
+              <label>extra_options JSON <textarea name="extra_options" rows="2">{}</textarea></label>
+            </details>
+            <button type="submit" class="primary">保存 HTTP 路由</button>
+            <button type="button" class="muted" data-reset="httpForm">清空</button>
+          </form>
+        </div>
         <div id="httpTable" class="table-wrap"></div>
       </section>
 
@@ -230,6 +271,18 @@
       </section>
     </section>
   </main>
+
+  <div id="drawerOverlay" class="drawer-overlay hidden" aria-hidden="true"></div>
+  <aside id="editorDrawer" class="drawer hidden" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+    <header class="drawer-head">
+      <div>
+        <p class="drawer-kicker">编辑当前配置</p>
+        <h2 id="drawerTitle">编辑</h2>
+      </div>
+      <button id="drawerClose" type="button" class="muted icon-button" aria-label="关闭编辑面板">×</button>
+    </header>
+    <div id="drawerBody" class="drawer-body"></div>
+  </aside>
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
   <script src="/static/app.js"></script>
