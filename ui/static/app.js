@@ -473,16 +473,13 @@ async function submitCrud(ev) {
   const form = ev.currentTarget;
   setFormMessage(form);
   setSubmitting(form, true);
-  const entry = endpointByForm(form.id);
-  if (!entry) {
-    setSubmitting(form, false);
-    return;
-  }
-  const [kind, cfg] = entry;
-  const id = form.elements.id ? form.elements.id.value : '';
-  const groupIds = groupIdsFromForm(form);
-  const payload = formToObject(form);
   try {
+    const entry = endpointByForm(form.id);
+    if (!entry) return;
+    const [kind, cfg] = entry;
+    const id = form.elements.id ? form.elements.id.value : '';
+    const groupIds = groupIdsFromForm(form);
+    const payload = formToObject(form);
     if (kind === 'sni') {
       const sniValues = parseListInput(payload.sni);
       if (!sniValues.length) throw new Error('至少需要一个 SNI 域名');
@@ -712,6 +709,8 @@ function initEvents() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  window.addEventListener('error', ev => toast(ev.message || '前端脚本错误', true));
+  window.addEventListener('unhandledrejection', ev => toast(ev.reason?.message || String(ev.reason || '前端异步错误'), true));
   initEvents();
   try { await loadAuthState(); } catch (err) { toast(err.message, true); }
 });
