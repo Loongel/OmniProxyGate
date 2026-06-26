@@ -159,6 +159,16 @@ omni create sni \
   --priority 30
 ```
 
+Register one certificate for multiple domains that use the same cert/key files:
+
+```bash
+omni create cert \
+  --name npm-wildcards \
+  --domain '*.example.com,*.edge.example.com' \
+  --cert-path /etc/nginx/certs/live/npm/fullchain.pem \
+  --key-path /etc/nginx/certs/live/npm/privkey.pem
+```
+
 Create a gRPC route:
 
 ```bash

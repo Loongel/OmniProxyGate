@@ -93,7 +93,7 @@ class SniRoute(Base, TimestampMixin):
     listener_id: Mapped[int] = mapped_column(ForeignKey("public_listeners.id", ondelete="CASCADE"), index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    sni: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    sni: Mapped[str] = mapped_column(String(2048), index=True, nullable=False)
     alpn: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=100)
     action: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -127,7 +127,7 @@ class Certificate(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    domain: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    domain: Mapped[str] = mapped_column(String(2048), index=True, nullable=False)
     cert_path: Mapped[str] = mapped_column(String(512), nullable=False)
     key_path: Mapped[str] = mapped_column(String(512), nullable=False)
     managed_by_system: Mapped[bool] = mapped_column(Boolean, default=False)

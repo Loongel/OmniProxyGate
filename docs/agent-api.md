@@ -84,8 +84,8 @@ Examples:
 | Backends | `PUT /api/backends/{id}` | replace backend |
 | Backends | `DELETE /api/backends/{id}` | delete backend |
 | Certificates | `GET /api/certificates` | list certificates |
-| Certificates | `POST /api/certificates` | register certificate paths |
-| Certificates | `PUT /api/certificates/{id}` | replace certificate |
+| Certificates | `POST /api/certificates` | register certificate paths; `domain` may contain one or more comma/newline separated domains |
+| Certificates | `PUT /api/certificates/{id}` | replace certificate; `domain` may contain one or more comma/newline separated domains |
 | Certificates | `DELETE /api/certificates/{id}` | delete certificate |
 | SNI routes | `GET /api/sni-routes` | list stream SNI routes |
 | SNI routes | `POST /api/sni-routes` | create one SNI route; `sni` may contain one or more comma/newline separated domains |
