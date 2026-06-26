@@ -1,0 +1,238 @@
+{
+  "backends": [
+    {
+      "name": "web-fallback",
+      "host": "web-fallback",
+      "port": 80,
+      "protocol": "http",
+      "tls_to_backend": false,
+      "keepalive": 32,
+      "connect_timeout": 30,
+      "read_timeout": 300,
+      "send_timeout": 300,
+      "preserve_host": true,
+      "forward_real_ip": true,
+      "extra_options": "{}"
+    },
+    {
+      "name": "api",
+      "host": "api",
+      "port": 8080,
+      "protocol": "http",
+      "tls_to_backend": false,
+      "keepalive": 32,
+      "connect_timeout": 30,
+      "read_timeout": 300,
+      "send_timeout": 300,
+      "preserve_host": true,
+      "forward_real_ip": true,
+      "extra_options": "{}"
+    },
+    {
+      "name": "xray-ws",
+      "host": "xray-ws",
+      "port": 10001,
+      "protocol": "http",
+      "tls_to_backend": false,
+      "keepalive": 32,
+      "connect_timeout": 60,
+      "read_timeout": 3600,
+      "send_timeout": 3600,
+      "preserve_host": true,
+      "forward_real_ip": true,
+      "extra_options": "{}"
+    },
+    {
+      "name": "xray-xhttp",
+      "host": "xray-xhttp",
+      "port": 10002,
+      "protocol": "http",
+      "tls_to_backend": false,
+      "keepalive": 32,
+      "connect_timeout": 60,
+      "read_timeout": 3600,
+      "send_timeout": 3600,
+      "preserve_host": true,
+      "forward_real_ip": true,
+      "extra_options": "{}"
+    },
+    {
+      "name": "xray-grpc",
+      "host": "xray-grpc",
+      "port": 10003,
+      "protocol": "grpc",
+      "tls_to_backend": false,
+      "keepalive": 32,
+      "connect_timeout": 60,
+      "read_timeout": 3600,
+      "send_timeout": 3600,
+      "preserve_host": true,
+      "forward_real_ip": true,
+      "extra_options": "{}"
+    },
+    {
+      "name": "xray-reality",
+      "host": "xray-reality",
+      "port": 443,
+      "protocol": "tcp_tls",
+      "tls_to_backend": false,
+      "keepalive": 0,
+      "connect_timeout": 60,
+      "read_timeout": 3600,
+      "send_timeout": 3600,
+      "preserve_host": true,
+      "forward_real_ip": false,
+      "extra_options": "{}"
+    }
+  ],
+  "certificates": [
+    {
+      "name": "proxy-cert",
+      "domain": "proxy.example.com",
+      "cert_path": "/etc/nginx/certs/default.crt",
+      "key_path": "/etc/nginx/certs/default.key",
+      "managed_by_system": false
+    },
+    {
+      "name": "grpc-cert",
+      "domain": "grpc.example.com",
+      "cert_path": "/etc/nginx/certs/default.crt",
+      "key_path": "/etc/nginx/certs/default.key",
+      "managed_by_system": false
+    },
+    {
+      "name": "wildcard-apps-cert",
+      "domain": "*.apps.example.com",
+      "cert_path": "/etc/nginx/certs/default.crt",
+      "key_path": "/etc/nginx/certs/default.key",
+      "managed_by_system": false
+    }
+  ],
+  "sni_routes": [
+    {
+      "name": "reject-blocked",
+      "enabled": true,
+      "sni": "blocked.example.com",
+      "alpn": null,
+      "priority": 1,
+      "action": "reject"
+    },
+    {
+      "name": "proxy-any-alpn",
+      "enabled": true,
+      "sni": "proxy.example.com",
+      "alpn": null,
+      "priority": 10,
+      "action": "http_termination"
+    },
+    {
+      "name": "grpc-h2-only",
+      "enabled": true,
+      "sni": "grpc.example.com",
+      "alpn": "h2",
+      "priority": 20,
+      "action": "http_termination"
+    },
+    {
+      "name": "legacy-h1-only",
+      "enabled": true,
+      "sni": "legacy.example.com",
+      "alpn": "http/1.1",
+      "priority": 30,
+      "action": "http_termination"
+    },
+    {
+      "name": "apps-wildcard-http",
+      "enabled": true,
+      "sni": "*.apps.example.com",
+      "alpn": null,
+      "priority": 40,
+      "action": "http_termination"
+    },
+    {
+      "name": "reality-exact",
+      "enabled": true,
+      "sni": "reality.example.com",
+      "alpn": null,
+      "priority": 50,
+      "action": "tls_passthrough",
+      "backend_name": "xray-reality"
+    },
+    {
+      "name": "reality-wildcard",
+      "enabled": true,
+      "sni": "*.reality.example.com",
+      "alpn": null,
+      "priority": 60,
+      "action": "tls_passthrough",
+      "backend_name": "xray-reality"
+    }
+  ],
+  "http_routes": [
+    {
+      "name": "proxy-ws",
+      "enabled": true,
+      "host": "proxy.example.com",
+      "path": "/ws",
+      "match_type": "host_path",
+      "priority": 10,
+      "backend_type": "http",
+      "http_mode": "websocket",
+      "backend_name": "xray-ws",
+      "is_default_fallback": false,
+      "extra_options": "{}"
+    },
+    {
+      "name": "proxy-xhttp",
+      "enabled": true,
+      "host": "proxy.example.com",
+      "path": "/xhttp",
+      "match_type": "host_path",
+      "priority": 20,
+      "backend_type": "http",
+      "http_mode": "xhttp_stream",
+      "backend_name": "xray-xhttp",
+      "is_default_fallback": false,
+      "extra_options": "{}"
+    },
+    {
+      "name": "grpc-service",
+      "enabled": true,
+      "host": "grpc.example.com",
+      "path": "/grpc",
+      "match_type": "host_path",
+      "priority": 10,
+      "backend_type": "grpc",
+      "http_mode": null,
+      "backend_name": "xray-grpc",
+      "is_default_fallback": false,
+      "extra_options": "{}"
+    },
+    {
+      "name": "shared-api-path",
+      "enabled": true,
+      "host": null,
+      "path": "/api",
+      "match_type": "path",
+      "priority": 100,
+      "backend_type": "http",
+      "http_mode": "normal",
+      "backend_name": "api",
+      "is_default_fallback": false,
+      "extra_options": "{}"
+    },
+    {
+      "name": "fallback-site",
+      "enabled": true,
+      "host": null,
+      "path": "/",
+      "match_type": "default",
+      "priority": 1000,
+      "backend_type": "http",
+      "http_mode": "normal",
+      "backend_name": "web-fallback",
+      "is_default_fallback": true,
+      "extra_options": "{}"
+    }
+  ]
+}

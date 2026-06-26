@@ -1,0 +1,14 @@
+.git
+.github
+.agent-state
+.secerts
+.e2e-data
+data
+__pycache__
+*.pyc
+*.pyo
+*.swp
+.env
+.env.*
+!/.env.example
+OmniProxyGate.zip

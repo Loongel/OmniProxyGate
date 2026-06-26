@@ -1,0 +1,44 @@
+services:
+  omni-proxygate:
+    image: ${OMNI_IMAGE:-ghcr.io/OWNER/REPO:latest}
+    container_name: omni-proxygate
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:${OMNI_HTTP_PORT:-80}:80/tcp"
+      - "0.0.0.0:${OMNI_HTTPS_PORT:-443}:443/tcp"
+      - "0.0.0.0:${OMNI_HTTPS_PORT:-443}:443/udp"
+      - "127.0.0.1:${OMNI_UI_PORT:-18081}:8080/tcp"
+    volumes:
+      - ${OMNI_DATA_ROOT:-./data}/data:/data
+      - ${OMNI_DATA_ROOT:-./data}/nginx/conf:/etc/nginx/conf.d
+      - ${OMNI_DATA_ROOT:-./data}/nginx/stream:/etc/nginx/stream.d
+      - ${OMNI_DATA_ROOT:-./data}/certs:/etc/nginx/certs
+      - ${OMNI_DATA_ROOT:-./data}/logs:/var/log/nginx
+    environment:
+      OMNI_RUN_GATEWAY: ${OMNI_RUN_GATEWAY:-true}
+      OMNI_RUN_UI: ${OMNI_RUN_UI:-true}
+      OMNI_WEB_UI_ENABLED: ${OMNI_WEB_UI_ENABLED:-true}
+      DATA_DIR: /data
+      GENERATED_HTTP_DIR: /etc/nginx/conf.d
+      GENERATED_STREAM_DIR: /etc/nginx/stream.d
+      LOG_DIR: /var/log/nginx
+      USE_DOCKER_CLI: "false"
+      NGINX_TEST_COMMAND: nginx -t
+      NGINX_RELOAD_COMMAND: nginx -s reload
+      LISTEN_ADDRESS_MODE: ${LISTEN_ADDRESS_MODE:-split}
+      ENABLE_HTTP3: ${ENABLE_HTTP3:-true}
+      DEFAULT_TCP_PORT: ${DEFAULT_TCP_PORT:-443}
+      DEFAULT_UDP_PORT: ${DEFAULT_UDP_PORT:-443}
+      INTERNAL_HTTP_HOST: ${INTERNAL_HTTP_HOST:-127.0.0.1}
+      INTERNAL_HTTP_PORT: ${INTERNAL_HTTP_PORT:-8443}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      OMNI_ADMIN_USER: ${OMNI_ADMIN_USER:-admin}
+      OMNI_ADMIN_PASSWORD: ${OMNI_ADMIN_PASSWORD:-}
+      OMNI_ADMIN_FORCE_PASSWORD_RESET: ${OMNI_ADMIN_FORCE_PASSWORD_RESET:-false}
+      OMNI_AGENT_API_TOKEN: ${OMNI_AGENT_API_TOKEN:-}
+    networks:
+      - proxy-net
+
+networks:
+  proxy-net:
+    driver: bridge

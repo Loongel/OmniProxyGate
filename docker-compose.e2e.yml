@@ -1,0 +1,124 @@
+services:
+  e2e-backend:
+    image: python:3.12-slim
+    container_name: nggm-e2e-backend
+    command:
+      - sh
+      - -c
+      - |
+          python - <<'PY'
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  body = b"E2E gateway OK\n"
+                  self.send_response(200)
+                  self.send_header("Content-Type", "text/plain; charset=utf-8")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+
+              def log_message(self, format, *args):
+                  return
+
+          HTTPServer(("0.0.0.0", 18080), Handler).serve_forever()
+          PY
+    expose:
+      - "18080"
+    networks:
+      - proxy-net
+
+  e2e-tls-backend:
+    image: python:3.12-slim
+    container_name: nggm-e2e-tls-backend
+    command:
+      - sh
+      - -c
+      - |
+          python - <<'PY'
+          import http.server
+          import ssl
+
+          class Handler(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  body = b"TLS passthrough OK\n"
+                  self.send_response(200)
+                  self.send_header("Content-Type", "text/plain; charset=utf-8")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+
+              def log_message(self, format, *args):
+                  return
+
+          server = http.server.HTTPServer(("0.0.0.0", 18444), Handler)
+          context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          context.load_cert_chain("/certs/reality-backend.crt", "/certs/reality-backend.key")
+          server.socket = context.wrap_socket(server.socket, server_side=True)
+          server.serve_forever()
+          PY
+    expose:
+      - "18444"
+    volumes:
+      - ${OMNI_DATA_ROOT:-./data}/certs:/certs:ro
+    networks:
+      - proxy-net
+
+  e2e-proxy-tls-backend:
+    image: python:3.12-slim
+    container_name: nggm-e2e-proxy-tls-backend
+    command:
+      - sh
+      - -c
+      - |
+          python - <<'PY'
+          import socket
+          import ssl
+          import threading
+
+          context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          context.load_cert_chain("/certs/reality-backend.crt", "/certs/reality-backend.key")
+
+          def handle(conn):
+              try:
+                  header = b""
+                  while not header.endswith(b"\r\n") and len(header) < 256:
+                      chunk = conn.recv(1)
+                      if not chunk:
+                          return
+                      header += chunk
+                  if not header.startswith(b"PROXY "):
+                      conn.sendall(b"missing proxy protocol\n")
+                      return
+                  with context.wrap_socket(conn, server_side=True) as tls:
+                      _ = tls.recv(4096)
+                      body = b"PROXY protocol TLS passthrough OK\n"
+                      tls.sendall(
+                          b"HTTP/1.1 200 OK\r\n"
+                          b"Content-Type: text/plain; charset=utf-8\r\n"
+                          + f"Content-Length: {len(body)}\r\n".encode()
+                          + b"Connection: close\r\n\r\n"
+                          + body
+                      )
+              except Exception:
+                  return
+              finally:
+                  try:
+                      conn.close()
+                  except Exception:
+                      pass
+
+          sock = socket.socket()
+          sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+          sock.bind(("0.0.0.0", 18445))
+          sock.listen(50)
+          while True:
+              conn, _ = sock.accept()
+              threading.Thread(target=handle, args=(conn,), daemon=True).start()
+          PY
+    expose:
+      - "18445"
+    volumes:
+      - ${OMNI_DATA_ROOT:-./data}/certs:/certs:ro
+    networks:
+      - proxy-net

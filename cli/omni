@@ -1,0 +1,532 @@
+#!/usr/bin/env python3
+"""OmniProxyGate Agent CLI.
+
+A zero-dependency network CLI/CUI for agents. It wraps the authenticated
+OmniProxyGate HTTP API and keeps raw API access available for full coverage.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import ssl
+import sys
+import textwrap
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+VERSION = "0.1.0"
+DEFAULT_TIMEOUT = 20
+RESOURCE_PATHS = {
+    "backends": "/api/backends",
+    "backend": "/api/backends",
+    "sni": "/api/sni-routes",
+    "sni-routes": "/api/sni-routes",
+    "http": "/api/http-routes",
+    "http-routes": "/api/http-routes",
+    "certs": "/api/certificates",
+    "certificates": "/api/certificates",
+    "versions": "/api/config/versions",
+}
+
+
+class OmniError(RuntimeError):
+    pass
+
+
+class Client:
+    def __init__(self, base_url: str, token: str | None, insecure: bool = False, timeout: int = DEFAULT_TIMEOUT):
+        self.base_url = base_url.rstrip("/")
+        self.token = token
+        self.timeout = timeout
+        self.context = ssl._create_unverified_context() if insecure else None
+
+    def request(self, method: str, path: str, data: Any = None, raw_body: bytes | None = None) -> Any:
+        url = path if path.startswith("http://") or path.startswith("https://") else f"{self.base_url}{path}"
+        headers = {"Accept": "application/json"}
+        if self.token:
+            headers["X-OMNI-API-TOKEN"] = self.token
+        body = raw_body
+        if data is not None:
+            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(url, data=body, headers=headers, method=method.upper())
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout, context=self.context) as resp:
+                payload = resp.read()
+                ctype = resp.headers.get("Content-Type", "")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            raise OmniError(f"HTTP {exc.code} {method.upper()} {url}: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise OmniError(f"network error {method.upper()} {url}: {exc.reason}") from exc
+        if not payload:
+            return None
+        if "application/json" in ctype:
+            return json.loads(payload.decode("utf-8"))
+        return payload.decode("utf-8", "replace")
+
+
+def env_bool(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def client_from_args(args: argparse.Namespace) -> Client:
+    base = args.url or os.getenv("OMNI_URL")
+    if not base:
+        raise OmniError("missing OMNI_URL; pass --url or export OMNI_URL=https://omni.example.com")
+    token = args.token or os.getenv("OMNI_AGENT_API_TOKEN")
+    insecure = args.insecure or env_bool("OMNI_INSECURE")
+    return Client(base, token, insecure=insecure, timeout=args.timeout)
+
+
+def print_json(obj: Any) -> None:
+    print(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=False))
+
+
+def print_table(rows: list[dict[str, Any]], fields: list[str]) -> None:
+    if not rows:
+        print("(empty)")
+        return
+    widths = {f: max(len(f), *(len(str(row.get(f, ""))) for row in rows)) for f in fields}
+    print("  ".join(f.ljust(widths[f]) for f in fields))
+    print("  ".join("-" * widths[f] for f in fields))
+    for row in rows:
+        print("  ".join(str(row.get(f, "")).ljust(widths[f]) for f in fields))
+
+
+def require_yes(args: argparse.Namespace, action: str) -> None:
+    if not getattr(args, "yes", False):
+        raise OmniError(f"{action} is potentially disruptive; rerun with --yes after exporting a backup")
+
+
+def as_bool(value: str | bool | None) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def load_json_arg(value: str | None) -> str:
+    if not value:
+        return "{}"
+    stripped = value.strip()
+    if stripped.startswith("@"):
+        return Path(stripped[1:]).read_text(encoding="utf-8")
+    return stripped
+
+
+def split_values(value: str) -> list[str]:
+    return [part.strip() for part in value.replace(";", ",").split(",") if part.strip()]
+
+
+def resolve_backend(client: Client, value: str | None) -> int | None:
+    if not value:
+        return None
+    if value.isdigit():
+        return int(value)
+    rows = client.request("GET", "/api/backends")
+    matches = [row for row in rows if row.get("name") == value]
+    if not matches:
+        raise OmniError(f"backend not found by name: {value}")
+    if len(matches) > 1:
+        raise OmniError(f"backend name is ambiguous: {value}")
+    return int(matches[0]["id"])
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    client = client_from_args(args)
+    checks: list[dict[str, Any]] = []
+    checks.append({"check": "OMNI_URL", "ok": bool(client.base_url), "detail": client.base_url})
+    checks.append({"check": "OMNI_AGENT_API_TOKEN", "ok": bool(client.token), "detail": "present" if client.token else "missing"})
+    try:
+        health = client.request("GET", "/healthz")
+        checks.append({"check": "healthz", "ok": health.get("status") == "ok", "detail": health})
+    except Exception as exc:  # noqa: BLE001 - CLI should show all connectivity failures.
+        checks.append({"check": "healthz", "ok": False, "detail": str(exc)})
+    try:
+        listener = client.request("GET", "/api/listener")
+        checks.append({"check": "auth", "ok": bool(listener.get("id")), "detail": f"listener={listener.get('name')}"})
+    except Exception as exc:  # noqa: BLE001
+        checks.append({"check": "auth", "ok": False, "detail": str(exc)})
+    if args.json:
+        print_json(checks)
+    else:
+        print_table(checks, ["check", "ok", "detail"])
+    return 0 if all(row["ok"] for row in checks) else 2
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    client = client_from_args(args)
+    bundle = client.request("GET", "/api/config/export")
+    summary = {
+        "product": bundle.get("product", "OmniProxyGate"),
+        "listener": bundle.get("listener", {}).get("name"),
+        "tcp_ports": bundle.get("listener", {}).get("tcp_ports") or [bundle.get("listener", {}).get("tcp_port")],
+        "udp_ports": bundle.get("listener", {}).get("udp_ports") or [bundle.get("listener", {}).get("udp_port")],
+        "backends": len(bundle.get("backends", [])),
+        "certificates": len(bundle.get("certificates", [])),
+        "sni_routes": len(bundle.get("sni_routes", [])),
+        "http_routes": len(bundle.get("http_routes", [])),
+    }
+    if args.json:
+        print_json(summary)
+    else:
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+    return 0
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    client = client_from_args(args)
+    bundle = client.request("GET", "/api/config/export")
+    content = json.dumps(bundle, ensure_ascii=False, indent=2) + "\n"
+    if args.output:
+        Path(args.output).write_text(content, encoding="utf-8")
+        print(f"exported {args.output}")
+    else:
+        print(content, end="")
+    return 0
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    require_yes(args, "config import")
+    client = client_from_args(args)
+    payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    result = client.request("POST", "/api/config/import", data=payload)
+    print_json(result) if args.json else print(f"imported: {result}")
+    return 0
+
+
+def cmd_preview(args: argparse.Namespace) -> int:
+    client = client_from_args(args)
+    result = client.request("GET", "/api/config/preview")
+    section = args.section
+    if args.json:
+        print_json(result if section == "all" else {section: result.get(section, "")})
+    elif section == "all":
+        print("# stream\n" + result.get("stream", ""))
+        print("\n# http\n" + result.get("http", ""))
+    else:
+        print(result.get(section, ""), end="" if result.get(section, "").endswith("\n") else "\n")
+    return 0
+
+
+def cmd_apply(args: argparse.Namespace) -> int:
+    require_yes(args, "config apply")
+    client = client_from_args(args)
+    result = client.request("POST", "/api/config/apply", data={})
+    print_json(result) if args.json else print(f"apply ok={result.get('ok')} version={result.get('version')}")
+    return 0 if result.get("ok") else 3
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    client = client_from_args(args)
+    path = RESOURCE_PATHS[args.resource]
+    rows = client.request("GET", path)
+    if args.json:
+        print_json(rows)
+        return 0
+    fields_by_resource = {
+        "backends": ["id", "name", "host", "port", "protocol", "send_proxy_protocol"],
+        "backend": ["id", "name", "host", "port", "protocol", "send_proxy_protocol"],
+        "sni": ["id", "name", "sni", "action", "backend_id", "priority", "enabled"],
+        "sni-routes": ["id", "name", "sni", "action", "backend_id", "priority", "enabled"],
+        "http": ["id", "name", "host", "path", "backend_id", "backend_type", "http_mode", "priority"],
+        "http-routes": ["id", "name", "host", "path", "backend_id", "backend_type", "http_mode", "priority"],
+        "certs": ["id", "name", "domain", "cert_path", "key_path"],
+        "certificates": ["id", "name", "domain", "cert_path", "key_path"],
+        "versions": ["id", "version", "status", "generated_at"],
+    }
+    print_table(rows, fields_by_resource[args.resource])
+    return 0
+
+
+def cmd_get(args: argparse.Namespace) -> int:
+    client = client_from_args(args)
+    if args.resource == "listener":
+        result = client.request("GET", "/api/listener")
+    else:
+        path = RESOURCE_PATHS[args.resource]
+        result = client.request("GET", path)
+        item_id = int(args.id)
+        result = next((row for row in result if int(row.get("id")) == item_id), None)
+        if result is None:
+            raise OmniError(f"{args.resource} id not found: {item_id}")
+    print_json(result)
+    return 0
+
+
+def backend_payload(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "name": args.name,
+        "host": args.host,
+        "port": args.port,
+        "protocol": args.protocol,
+        "scheme": args.scheme,
+        "tls_to_backend": args.tls_to_backend,
+        "send_proxy_protocol": args.send_proxy_protocol,
+        "keepalive": args.keepalive,
+        "read_timeout": args.read_timeout,
+        "send_timeout": args.send_timeout,
+        "connect_timeout": args.connect_timeout,
+        "preserve_host": not args.no_preserve_host,
+        "forward_real_ip": not args.no_forward_real_ip,
+        "extra_options": load_json_arg(args.extra_options),
+    }
+
+
+def cmd_create_backend(args: argparse.Namespace) -> int:
+    client = client_from_args(args)
+    result = client.request("POST", "/api/backends", data=backend_payload(args))
+    print_json(result)
+    return 0
+
+
+def cmd_create_sni(args: argparse.Namespace) -> int:
+    client = client_from_args(args)
+    backend_id = resolve_backend(client, args.backend)
+    created = []
+    sni_values = split_values(args.sni)
+    for idx, sni in enumerate(sni_values, start=1):
+        payload = {
+            "listener_id": args.listener_id,
+            "name": args.name if len(sni_values) == 1 else f"{args.name}-{idx}",
+            "enabled": not args.disabled,
+            "sni": sni,
+            "alpn": args.alpn,
+            "priority": args.priority,
+            "action": args.action,
+            "backend_id": backend_id,
+        }
+        created.append(client.request("POST", "/api/sni-routes", data=payload))
+    print_json(created if len(created) > 1 else created[0])
+    return 0
+
+
+def cmd_create_http(args: argparse.Namespace) -> int:
+    client = client_from_args(args)
+    backend_id = resolve_backend(client, args.backend)
+    if backend_id is None:
+        raise OmniError("--backend is required")
+    payload = {
+        "name": args.name,
+        "enabled": not args.disabled,
+        "host": args.host,
+        "path": args.path,
+        "match_type": args.match_type,
+        "priority": args.priority,
+        "backend_type": args.backend_type,
+        "http_mode": args.http_mode,
+        "backend_id": backend_id,
+        "is_default_fallback": args.default_fallback,
+        "extra_options": load_json_arg(args.extra_options),
+    }
+    result = client.request("POST", "/api/http-routes", data=payload)
+    print_json(result)
+    return 0
+
+
+def cmd_create_cert(args: argparse.Namespace) -> int:
+    client = client_from_args(args)
+    payload = {
+        "name": args.name,
+        "domain": args.domain,
+        "cert_path": args.cert_path,
+        "key_path": args.key_path,
+        "managed_by_system": args.managed_by_system,
+        "expire_at": args.expire_at,
+    }
+    result = client.request("POST", "/api/certificates", data=payload)
+    print_json(result)
+    return 0
+
+
+def cmd_delete(args: argparse.Namespace) -> int:
+    require_yes(args, f"delete {args.resource}")
+    client = client_from_args(args)
+    base = RESOURCE_PATHS[args.resource]
+    result = client.request("DELETE", f"{base}/{args.id}")
+    print_json(result) if args.json else print(f"deleted {args.resource} {args.id}")
+    return 0
+
+
+def cmd_raw(args: argparse.Namespace) -> int:
+    client = client_from_args(args)
+    body = None
+    if args.data:
+        body = json.loads(load_json_arg(args.data))
+    result = client.request(args.method, args.path, data=body)
+    if isinstance(result, str):
+        print(result, end="" if result.endswith("\n") else "\n")
+    else:
+        print_json(result)
+    return 0
+
+
+def add_common(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--url", help="OmniProxyGate base URL; defaults to OMNI_URL")
+    parser.add_argument("--token", help="Agent API token; defaults to OMNI_AGENT_API_TOKEN")
+    parser.add_argument("--insecure", action="store_true", help="skip TLS verification; also via OMNI_INSECURE=true")
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help=f"request timeout seconds (default: {DEFAULT_TIMEOUT})")
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON where supported")
+
+
+def add_json(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON where supported")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    epilog = """
+Examples:
+  export OMNI_URL=https://omni.example.com
+  export OMNI_AGENT_API_TOKEN=...secret...
+  omni doctor
+  omni status --json
+  omni export -o backup.json
+  omni list backends
+  omni create backend --name npm --host npm_app --port 443 --protocol http --scheme https
+  omni create sni --name npm-public --sni '*.example.com,example.com' --action tls_passthrough --backend npm
+  omni create http --name xui-grpc --host grpc.example.com --path /grpc --backend xui --backend-type grpc
+  omni preview --section stream
+  omni apply --yes
+  omni raw GET /api/config/export
+"""
+    parser = argparse.ArgumentParser(
+        prog="omni",
+        description="OmniProxyGate Agent CLI/CUI: inspect, edit, preview, apply, export, and import gateway config over HTTP.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent(epilog).strip(),
+    )
+    parser.add_argument("--version", action="version", version=f"omni {VERSION}")
+    add_common(parser)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("doctor", help="check URL, token, health, and authenticated API access")
+    add_json(p)
+    p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("status", help="summarize listener ports and object counts")
+    add_json(p)
+    p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("export", help="export full routing config bundle")
+    p.add_argument("-o", "--output", help="write bundle to file instead of stdout")
+    p.set_defaults(func=cmd_export)
+
+    p = sub.add_parser("import", help="replace routing config from exported bundle; requires --yes")
+    add_json(p)
+    p.add_argument("file")
+    p.add_argument("--yes", action="store_true", help="confirm destructive replacement")
+    p.set_defaults(func=cmd_import)
+
+    p = sub.add_parser("preview", help="render generated nginx config without applying")
+    add_json(p)
+    p.add_argument("--section", choices=["all", "http", "stream"], default="all")
+    p.set_defaults(func=cmd_preview)
+
+    p = sub.add_parser("apply", help="run nginx test/reload through server; requires --yes")
+    add_json(p)
+    p.add_argument("--yes", action="store_true", help="confirm apply")
+    p.set_defaults(func=cmd_apply)
+
+    p = sub.add_parser("list", help="list resources")
+    add_json(p)
+    p.add_argument("resource", choices=sorted(RESOURCE_PATHS))
+    p.set_defaults(func=cmd_list)
+
+    p = sub.add_parser("get", help="get listener or resource item as JSON")
+    p.add_argument("resource", choices=["listener"] + sorted(RESOURCE_PATHS))
+    p.add_argument("id", nargs="?", help="required for non-listener resources")
+    p.set_defaults(func=cmd_get)
+
+    create = sub.add_parser("create", help="create backend, SNI route(s), HTTP route, or certificate")
+    create_sub = create.add_subparsers(dest="create_resource", required=True)
+
+    p = create_sub.add_parser("backend", help="create a backend service")
+    p.add_argument("--name", required=True)
+    p.add_argument("--host", required=True)
+    p.add_argument("--port", required=True, type=int)
+    p.add_argument("--protocol", default="http", choices=["http", "https", "grpc", "grpcs", "h2c", "tcp_tls"])
+    p.add_argument("--scheme", choices=["http", "https"], help="upstream scheme for HTTP backends")
+    p.add_argument("--tls-to-backend", action="store_true")
+    p.add_argument("--send-proxy-protocol", action="store_true", help="send PROXY protocol to this backend when supported by route template")
+    p.add_argument("--keepalive", type=int, default=32)
+    p.add_argument("--read-timeout", type=int, default=3600)
+    p.add_argument("--send-timeout", type=int, default=3600)
+    p.add_argument("--connect-timeout", type=int, default=60)
+    p.add_argument("--no-preserve-host", action="store_true")
+    p.add_argument("--no-forward-real-ip", action="store_true")
+    p.add_argument("--extra-options", help="JSON string or @file; default {}")
+    p.set_defaults(func=cmd_create_backend)
+
+    p = create_sub.add_parser("sni", help="create one or more SNI stream routes")
+    p.add_argument("--name", required=True)
+    p.add_argument("--sni", required=True, help="comma/semicolon separated SNI names; wildcard domains are allowed by server validation")
+    p.add_argument("--action", required=True, choices=["http_termination", "tls_passthrough", "reject"])
+    p.add_argument("--backend", help="backend id or exact backend name; required for tls_passthrough")
+    p.add_argument("--alpn")
+    p.add_argument("--priority", type=int, default=100)
+    p.add_argument("--listener-id", type=int, default=1)
+    p.add_argument("--disabled", action="store_true")
+    p.set_defaults(func=cmd_create_sni)
+
+    p = create_sub.add_parser("http", help="create an HTTP/gRPC route")
+    p.add_argument("--name", required=True)
+    p.add_argument("--host")
+    p.add_argument("--path", default="/")
+    p.add_argument("--match-type", default="host_path", choices=["host_path", "host", "path", "default"])
+    p.add_argument("--priority", type=int, default=100)
+    p.add_argument("--backend", required=True, help="backend id or exact backend name")
+    p.add_argument("--backend-type", default="http", choices=["http", "grpc"])
+    p.add_argument("--http-mode", default="normal", choices=["normal", "websocket", "xhttp_stream"])
+    p.add_argument("--default-fallback", action="store_true")
+    p.add_argument("--disabled", action="store_true")
+    p.add_argument("--extra-options", help="JSON string or @file; default {}")
+    p.set_defaults(func=cmd_create_http)
+
+    p = create_sub.add_parser("cert", help="register a certificate path pair")
+    p.add_argument("--name", required=True)
+    p.add_argument("--domain", required=True)
+    p.add_argument("--cert-path", required=True)
+    p.add_argument("--key-path", required=True)
+    p.add_argument("--managed-by-system", action="store_true")
+    p.add_argument("--expire-at")
+    p.set_defaults(func=cmd_create_cert)
+
+    p = sub.add_parser("delete", help="delete a resource by id; requires --yes")
+    add_json(p)
+    p.add_argument("resource", choices=["backends", "backend", "sni", "sni-routes", "http", "http-routes", "certs", "certificates"])
+    p.add_argument("id", type=int)
+    p.add_argument("--yes", action="store_true")
+    p.set_defaults(func=cmd_delete)
+
+    p = sub.add_parser("raw", help="call any API path for full coverage")
+    p.add_argument("method", choices=["GET", "POST", "PUT", "DELETE", "PATCH"])
+    p.add_argument("path", help="API path, for example /api/backends")
+    p.add_argument("--data", help="JSON string or @file for request body")
+    p.set_defaults(func=cmd_raw)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "get" and args.resource != "listener" and not args.id:
+        parser.error("get requires id for non-listener resources")
+    try:
+        return args.func(args)
+    except OmniError as exc:
+        print(f"omni: error: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("omni: interrupted", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

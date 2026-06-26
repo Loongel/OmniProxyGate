@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Runtime data and local env
+.env
+.env.*
+!.env.example
+!.dockerignore
+.secerts/
+data/
+.e2e-data/
+reports/
+.agent-state/
+
+# Generated examples and local artifacts
+examples/generated/
+*.log
+*.tmp
+*.bak
+*.bakk
+
+# OS/editor
+.DS_Store
+*.swp
+*~
