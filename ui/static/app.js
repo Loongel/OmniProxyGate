@@ -94,12 +94,6 @@ function groupIdsFromForm(form) {
   return parseListInput(raw);
 }
 
-function certNameForDomain(baseName, domain, index, total) {
-  if (total <= 1) return baseName;
-  const suffix = domain.replace(/[^A-Za-z0-9_.-]/g, '-').replace(/^\*\./, 'wild-');
-  return `${baseName}-${index + 1}-${suffix}`.slice(0, 63);
-}
-
 function alpnValues(value) {
   return parseListInput(String(value || '').replace(/,/g, ' '));
 }
@@ -334,7 +328,9 @@ function groupCerts() {
     if (!groups.has(key)) groups.set(key, { ...row, ids: [], domains: [], names: [] });
     const group = groups.get(key);
     group.ids.push(row.id);
-    group.domains.push(row.domain);
+    parseListInput(row.domain).forEach(domain => {
+      if (!group.domains.includes(domain)) group.domains.push(domain);
+    });
     group.names.push(row.name);
   });
   return Array.from(groups.values());
@@ -497,8 +493,13 @@ async function submitCrud(ev) {
       const domains = parseListInput(payload.domain);
       if (!domains.length) throw new Error('至少需要一个证书域名');
       const idsToReplace = groupIds.length ? groupIds : (id ? [id] : []);
-      const certificates = domains.map((domain, i) => ({ ...payload, name: certNameForDomain(payload.name, domain, i, domains.length), domain }));
-      await api(`${cfg.base}/bulk-replace`, { method: 'POST', body: JSON.stringify({ replace_ids: idsToReplace.map(Number), certificates }) });
+      const certPayload = { ...payload, domain: domains.join(',') };
+      if (idsToReplace.length > 1) {
+        await api(`${cfg.base}/bulk-replace`, { method: 'POST', body: JSON.stringify({ replace_ids: idsToReplace.map(Number), certificates: [certPayload] }) });
+      } else {
+        const targetId = idsToReplace[0];
+        await api(targetId ? `${cfg.base}/${targetId}` : cfg.base, { method: targetId ? 'PUT' : 'POST', body: JSON.stringify(certPayload) });
+      }
     } else {
       await api(id ? `${cfg.base}/${id}` : cfg.base, { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
     }
@@ -564,7 +565,7 @@ function editCertGroup(ids) {
   const items = state.certs.filter(x => idList.includes(String(x.id)));
   if (!items.length) return;
   const first = items[0];
-  fillForm('certForm', { ...first, id: first.id, group_ids: idList.join(','), name: first.names ? first.names[0] : first.name.replace(/-\d+-.*$/, ''), domain: items.map(x => x.domain) });
+  fillForm('certForm', { ...first, id: first.id, group_ids: idList.join(','), name: first.names ? first.names[0] : first.name.replace(/-\d+-.*$/, ''), domain: items.flatMap(x => parseListInput(x.domain)) });
 }
 
 function refreshTableControl(target, restoreFocus = false) {

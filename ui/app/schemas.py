@@ -185,9 +185,7 @@ class CertificateIn(BaseModel):
     @field_validator("domain")
     @classmethod
     def cert_domain_valid(cls, value: str) -> str:
-        checked = validate_domain(value)
-        assert checked is not None
-        return checked
+        return validate_domain_list(value, "domain")
 
     @field_validator("cert_path", "key_path")
     @classmethod

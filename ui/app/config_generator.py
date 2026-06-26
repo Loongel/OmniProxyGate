@@ -91,6 +91,19 @@ def _domain_matches(pattern: str, host: str) -> bool:
     return pattern == host
 
 
+def _domain_list_matches(patterns: str, host: str) -> bool:
+    return any(_domain_matches(pattern, host) for pattern in _split_route_values(patterns))
+
+
+def _domain_list_contains_exact(patterns: str, host: str) -> bool:
+    host = (host or "").lower()
+    return any(pattern.lower() == host for pattern in _split_route_values(patterns))
+
+
+def _domain_list_contains_wildcard_match(patterns: str, host: str) -> bool:
+    return any(pattern.startswith("*.") and _domain_matches(pattern, host) for pattern in _split_route_values(patterns))
+
+
 def _split_words(value: Optional[str]) -> list[str]:
     if not value:
         return []
@@ -350,10 +363,10 @@ class NginxConfigGenerator:
     def _cert_for_host(self, host: str) -> Optional[Any]:
         if not self.certificates:
             return None
-        exact = [c for c in self.certificates if _get(c, "domain", "").lower() == host.lower()]
+        exact = [c for c in self.certificates if _domain_list_contains_exact(_get(c, "domain", ""), host)]
         if exact:
             return exact[0]
-        wildcard = [c for c in self.certificates if _get(c, "domain", "").startswith("*.") and _domain_matches(_get(c, "domain"), host)]
+        wildcard = [c for c in self.certificates if _domain_list_contains_wildcard_match(_get(c, "domain", ""), host)]
         if wildcard:
             return wildcard[0]
         return self.certificates[0]
@@ -361,9 +374,9 @@ class NginxConfigGenerator:
     def _all_server_names(self) -> list[str]:
         names: list[str] = []
         for cert in self.certificates:
-            domain = _get(cert, "domain", None)
-            if domain and domain not in names:
-                names.append(domain)
+            for domain in _split_route_values(_get(cert, "domain", None)):
+                if domain not in names:
+                    names.append(domain)
         for route in self.http_routes:
             host = _get(route, "host", None)
             if host and host not in names:
@@ -394,7 +407,7 @@ class NginxConfigGenerator:
         if server_name == "_":
             return not route_host
         if route_host:
-            return _domain_matches(route_host, server_name) or route_host == server_name
+            return _domain_list_matches(route_host, server_name) or route_host == server_name
         return False
 
     def _render_location(self, route: Any) -> list[str]:

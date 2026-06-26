@@ -333,7 +333,7 @@ def cmd_create_cert(args: argparse.Namespace) -> int:
     client = client_from_args(args)
     payload = {
         "name": args.name,
-        "domain": args.domain,
+        "domain": ",".join(split_values(args.domain)),
         "cert_path": args.cert_path,
         "key_path": args.key_path,
         "managed_by_system": args.managed_by_system,
@@ -489,7 +489,7 @@ Examples:
 
     p = create_sub.add_parser("cert", help="register a certificate path pair")
     p.add_argument("--name", required=True)
-    p.add_argument("--domain", required=True)
+    p.add_argument("--domain", required=True, help="comma/semicolon separated certificate domains")
     p.add_argument("--cert-path", required=True)
     p.add_argument("--key-path", required=True)
     p.add_argument("--managed-by-system", action="store_true")

@@ -37,8 +37,7 @@ def sample_objects():
         NS(id=6, name="frps-tls", host="frps", port=443, protocol="tcp_tls", tls_to_backend=False, send_proxy_protocol=False, keepalive=0, read_timeout=3600, send_timeout=3600, connect_timeout=60, preserve_host=True, forward_real_ip=False),
     ]
     certs = [
-        NS(id=1, name="proxy", domain="proxy.example.com", cert_path="/etc/nginx/certs/default.crt", key_path="/etc/nginx/certs/default.key"),
-        NS(id=2, name="grpc", domain="grpc.example.com", cert_path="/etc/nginx/certs/default.crt", key_path="/etc/nginx/certs/default.key"),
+        NS(id=1, name="proxy", domain="proxy.example.com,grpc.example.com,*.apps.example.com", cert_path="/etc/nginx/certs/default.crt", key_path="/etc/nginx/certs/default.key"),
     ]
     sni_routes = [
         NS(id=1, listener_id=1, name="proxy", enabled=True, sni="proxy.example.com", alpn=None, priority=10, action="http_termination", backend_id=None),
@@ -72,6 +71,9 @@ def test_generate_contains_required_blocks():
     assert "set $nggm_http_backend_3 \"xray-grpc:10003\";" in generated.http
     assert "grpc_pass grpc://$nggm_http_backend_3;" in generated.http
     assert "proxy_pass http://$nggm_http_backend_1;" in generated.http
+    assert "server_name proxy.example.com;" in generated.http
+    assert "server_name grpc.example.com;" in generated.http
+    assert "server_name *.apps.example.com;" in generated.http
     assert "proxy_set_header Upgrade $http_upgrade;" in generated.http
     assert "proxy_request_buffering off;" in generated.http
     assert "listen 0.0.0.0:443 quic reuseport;" in generated.http
