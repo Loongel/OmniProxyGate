@@ -26,6 +26,9 @@ if truthy "$OMNI_RUN_GATEWAY"; then
   for f in /docker-entrypoint.d/*.sh; do
     [ -e "$f" ] && . "$f"
   done
+  cd /app
+  python -m app.render_active_configs
+  nginx -t
   nginx -g 'daemon off;' &
   pids="$pids $!"
 fi

@@ -18,6 +18,7 @@ from .config_generator import NginxConfigGenerator
 from .database import get_db
 from .models import AdminUser, Backend, Certificate, ConfigVersion, HttpRoute, PublicListener, SessionToken, SniRoute
 from .nginx_control import apply_configs, rollback_to, tail_log
+from .runtime_config import default_listener, generator_from_db
 from .schemas import (
     AdminInit,
     AuthState,
@@ -172,13 +173,7 @@ def _commit_or_400(db: Session) -> None:
 
 
 def _default_listener(db: Session) -> PublicListener:
-    listener = db.execute(select(PublicListener).order_by(PublicListener.id.asc())).scalar_one_or_none()
-    if not listener:
-        listener = PublicListener(name="default")
-        db.add(listener)
-        _commit_or_400(db)
-        db.refresh(listener)
-    return listener
+    return default_listener(db)
 
 
 @app.get("/api/listener", response_model=ListenerOut, dependencies=[Depends(require_user)])
@@ -454,12 +449,7 @@ def import_config(payload: dict = Body(...), db: Session = Depends(get_db)) -> d
 
 
 def _generator_from_db(db: Session) -> NginxConfigGenerator:
-    listener = _default_listener(db)
-    sni_routes = list(db.execute(select(SniRoute).order_by(SniRoute.priority.asc(), SniRoute.id.asc())).scalars())
-    http_routes = list(db.execute(select(HttpRoute).order_by(HttpRoute.priority.asc(), HttpRoute.id.asc())).scalars())
-    backends = list(db.execute(select(Backend).order_by(Backend.id.asc())).scalars())
-    certificates = list(db.execute(select(Certificate).order_by(Certificate.id.asc())).scalars())
-    return NginxConfigGenerator(listener, sni_routes, http_routes, backends, certificates)
+    return generator_from_db(db)
 
 
 @app.get("/api/config/preview", response_model=ConfigPreview, dependencies=[Depends(require_user)])

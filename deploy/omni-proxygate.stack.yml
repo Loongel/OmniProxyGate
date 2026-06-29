@@ -21,9 +21,7 @@ services:
     volumes:
       # Persistent control-plane database, sessions, and config version records.
       - omni_data:/data
-      # Generated Nginx snippets are persisted so gateway restarts keep the last applied config.
-      - omni_nginx_http:/etc/nginx/conf.d
-      - omni_nginx_stream:/etc/nginx/stream.d
+      # Generated Nginx snippets are rebuilt from /data at container startup.
       # Certificate/key material should be lifecycle-managed independently from the database.
       - omni_certs:/etc/nginx/certs
       # Optional: persist nginx logs. Leave disabled if host/driver log collection is preferred.
@@ -64,10 +62,6 @@ networks:
 volumes:
   omni_data:
     name: ${OMNI_DATA_VOLUME:-omni_proxygate_data}
-  omni_nginx_http:
-    name: ${OMNI_NGINX_HTTP_VOLUME:-omni_proxygate_nginx_http}
-  omni_nginx_stream:
-    name: ${OMNI_NGINX_STREAM_VOLUME:-omni_proxygate_nginx_stream}
   omni_certs:
     name: ${OMNI_CERTS_VOLUME:-omni_proxygate_certs}
   # omni_logs:

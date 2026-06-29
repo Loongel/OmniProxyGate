@@ -181,13 +181,13 @@ environment:
 
 ### Stream 层
 
-生成目录：
+运行时生成目录：
 
 ```text
 /etc/nginx/stream.d/gateway-stream.conf
 ```
 
-默认部署样例会把该目录持久化到独立 Docker named volume。
+该目录不作为配置真相持久化；容器启动时会从 `/data` 数据库重新生成。
 
 生成内容包括：
 
@@ -199,13 +199,13 @@ environment:
 
 ### HTTP 层
 
-生成目录：
+运行时生成目录：
 
 ```text
 /etc/nginx/conf.d/gateway-http.conf
 ```
 
-默认部署样例会把该目录持久化到独立 Docker named volume。
+该目录不作为配置真相持久化；容器启动时会从 `/data` 数据库重新生成。
 
 生成内容包括：
 

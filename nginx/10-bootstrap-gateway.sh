@@ -1,13 +1,13 @@
 #!/bin/sh
 set -eu
 
-mkdir -p /etc/nginx/certs /etc/nginx/conf.d /etc/nginx/stream.d /var/log/nginx /tmp/nginx-default-certs
+mkdir -p /etc/nginx/certs /etc/nginx/conf.d /etc/nginx/stream.d /var/log/nginx
 
-if [ ! -f /tmp/nginx-default-certs/default.crt ] || [ ! -f /tmp/nginx-default-certs/default.key ]; then
+if [ ! -f /etc/nginx/certs/default.crt ] || [ ! -f /etc/nginx/certs/default.key ]; then
   openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
     -subj "/CN=localhost" \
-    -keyout /tmp/nginx-default-certs/default.key \
-    -out /tmp/nginx-default-certs/default.crt >/dev/null 2>&1
+    -keyout /etc/nginx/certs/default.key \
+    -out /etc/nginx/certs/default.crt >/dev/null 2>&1
 fi
 
 if [ ! -f /etc/nginx/conf.d/gateway-http.conf ]; then
@@ -22,8 +22,8 @@ server {
     listen 0.0.0.0:8443 ssl;
     http2 on;
     server_name _;
-    ssl_certificate /tmp/nginx-default-certs/default.crt;
-    ssl_certificate_key /tmp/nginx-default-certs/default.key;
+    ssl_certificate /etc/nginx/certs/default.crt;
+    ssl_certificate_key /etc/nginx/certs/default.key;
     ssl_protocols TLSv1.2 TLSv1.3;
     location / {
         return 404;

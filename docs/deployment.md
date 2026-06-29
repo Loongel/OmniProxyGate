@@ -33,12 +33,12 @@ The default Compose and Swarm examples use Docker named volumes instead of bind-
 | Volume | Target | Purpose |
 | --- | --- | --- |
 | `omni_data` / `omni_proxygate_data` | `/data` | SQLite database, sessions, config versions |
-| `omni_nginx_http` / `omni_proxygate_nginx_http` | `/etc/nginx/conf.d` | Last applied generated HTTP config |
-| `omni_nginx_stream` / `omni_proxygate_nginx_stream` | `/etc/nginx/stream.d` | Last applied generated stream config |
 | `omni_certs` / `omni_proxygate_certs` | `/etc/nginx/certs` | Certificate and key material |
 | optional `omni_logs` / `omni_proxygate_logs` | `/var/log/nginx` | Nginx log retention if container logs are not enough |
 
-The config snippet directories are persisted separately so a gateway restart keeps the last applied Nginx configuration without requiring a Web UI/API regeneration step.
+The Nginx snippet directories are runtime state. At container startup, OmniProxyGate initializes `/data`, renders the active Nginx snippets from the database into `/etc/nginx/conf.d` and `/etc/nginx/stream.d`, runs `nginx -t`, then starts Nginx. This keeps `/data` as the single source of truth and avoids stale generated-config volumes.
+
+Keep `/etc/nginx/certs` persistent. Certificate records in `/data` reference certificate/key file paths, and the startup bootstrap also creates the default self-signed certificate in that directory when it is missing.
 
 ## Migrating From Bind Mount Examples
 
@@ -54,7 +54,7 @@ docker run --rm \
   alpine sh -c 'cd /from && cp -a . /to/'
 ```
 
-Repeat for `nginx/conf -> omni_proxygate_nginx_http`, `nginx/stream -> omni_proxygate_nginx_stream`, and `certs -> omni_proxygate_certs`. Do not copy logs unless you intentionally enabled the optional log volume.
+Only copy the database/state directory into `omni_proxygate_data` and certificates into `omni_proxygate_certs`. Do not copy old generated `nginx/conf` or `nginx/stream` directories; they will be rebuilt from `/data` on startup. Do not copy logs unless you intentionally enabled the optional log volume.
 
 ## Docker Compose
 

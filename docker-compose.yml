@@ -10,8 +10,6 @@ services:
       - "127.0.0.1:${OMNI_UI_PORT:-18081}:8080/tcp"
     volumes:
       - omni_data:/data
-      - omni_nginx_http:/etc/nginx/conf.d
-      - omni_nginx_stream:/etc/nginx/stream.d
       - omni_certs:/etc/nginx/certs
       # Optional: persist nginx logs instead of relying on container logs.
       # - omni_logs:/var/log/nginx
@@ -33,7 +31,5 @@ networks:
 
 volumes:
   omni_data:
-  omni_nginx_http:
-  omni_nginx_stream:
   omni_certs:
   # omni_logs:
