@@ -39,6 +39,15 @@ def _fmt_listen_host_port(host: str, port: int) -> str:
     return f"{host}:{port}"
 
 
+def _connect_host_for_listen_host(host: str) -> str:
+    # Wildcard listen addresses are not good upstream targets. Stream-to-HTTP
+    # handoff stays inside this container, so loopback remains the right target.
+    normalized = (host or "").strip().lower().strip("[]")
+    if normalized in {"", "0.0.0.0", "::"}:
+        return "127.0.0.1"
+    return host
+
+
 def _domain_to_regex(domain: str) -> str:
     domain = domain.lower().strip()
     if domain.startswith("*."):
@@ -234,9 +243,9 @@ class NginxConfigGenerator:
 
     def _stream_route_endpoint(self, route_key: str, internal_endpoints: dict[str, int]) -> str:
         if route_key == "http_termination":
-            internal_host = _get(self.listener, "internal_http_host", "127.0.0.1")
+            internal_host = _get(self.listener, "internal_http_host", "0.0.0.0")
             internal_port = int(_get(self.listener, "internal_http_port", 8443))
-            return _fmt_host_port(internal_host, internal_port)
+            return _fmt_host_port(_connect_host_for_listen_host(internal_host), internal_port)
         if route_key == "reject":
             return "127.0.0.1:9"
         port = internal_endpoints.get(route_key)
@@ -301,11 +310,11 @@ class NginxConfigGenerator:
             "",
         ])
 
-        internal_host = _get(self.listener, "internal_http_host", "127.0.0.1")
+        internal_host = _get(self.listener, "internal_http_host", "0.0.0.0")
         internal_port = int(_get(self.listener, "internal_http_port", 8443))
         lines.extend([
             "upstream nggm_http_termination {",
-            f"    server {_fmt_host_port(internal_host, internal_port)};",
+            f"    server {_fmt_host_port(_connect_host_for_listen_host(internal_host), internal_port)};",
             "}",
             "",
             "# Reject target: intentionally points to the local discard port so nginx closes quickly.",
@@ -600,7 +609,7 @@ class NginxConfigGenerator:
                 f"    add_header Alt-Svc 'h3=\":{udp_port}\"; ma=86400' always;",
             ])
         else:
-            internal_host = _get(self.listener, "internal_http_host", "127.0.0.1")
+            internal_host = _get(self.listener, "internal_http_host", "0.0.0.0")
             internal_port = int(_get(self.listener, "internal_http_port", 8443))
             lines.append(f"    listen {_fmt_listen_host_port(internal_host, internal_port)} ssl proxy_protocol;")
             lines.append("    set_real_ip_from 127.0.0.1;")

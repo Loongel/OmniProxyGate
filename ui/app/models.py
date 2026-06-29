@@ -78,7 +78,7 @@ class PublicListener(Base, TimestampMixin):
     listen_address_mode: Mapped[str] = mapped_column(String(16), default="split")
     default_sni_action: Mapped[str] = mapped_column(String(32), default="http_termination")
     default_backend_id: Mapped[Optional[int]] = mapped_column(ForeignKey("backends.id"), nullable=True)
-    internal_http_host: Mapped[str] = mapped_column(String(255), default="127.0.0.1")
+    internal_http_host: Mapped[str] = mapped_column(String(255), default="0.0.0.0")
     internal_http_port: Mapped[int] = mapped_column(Integer, default=8443)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 

@@ -77,7 +77,7 @@ class ListenerIn(BaseModel):
     listen_address_mode: str = "split"
     default_sni_action: str = "http_termination"
     default_backend_id: Optional[int] = None
-    internal_http_host: str = "127.0.0.1"
+    internal_http_host: str = "0.0.0.0"
     internal_http_port: int = 8443
     enabled: bool = True
 

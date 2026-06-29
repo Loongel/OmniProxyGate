@@ -196,7 +196,7 @@ omni create http \
 Call raw API for a command not yet wrapped:
 
 ```bash
-omni raw PUT /api/listener --data '{"name":"default","tcp_port":[443,2053],"udp_port":[443],"enable_tcp_sni":true,"enable_http3":true,"enable_http80":true,"listen_address_mode":"split","default_sni_action":"http_termination","default_backend_id":null,"internal_http_host":"127.0.0.1","internal_http_port":8443,"enabled":true}'
+omni raw PUT /api/listener --data '{"name":"default","tcp_port":[443,2053],"udp_port":[443],"enable_tcp_sni":true,"enable_http3":true,"enable_http80":true,"listen_address_mode":"split","default_sni_action":"http_termination","default_backend_id":null,"internal_http_host":"0.0.0.0","internal_http_port":8443,"enabled":true}'
 ```
 
 ## Output Modes

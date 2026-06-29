@@ -19,7 +19,7 @@ map $http_upgrade $nggm_connection_upgrade {
 }
 
 server {
-    listen 127.0.0.1:8443 ssl;
+    listen 0.0.0.0:8443 ssl;
     http2 on;
     server_name _;
     ssl_certificate /tmp/nginx-default-certs/default.crt;

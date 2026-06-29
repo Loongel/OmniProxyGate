@@ -212,7 +212,7 @@ environment:
 - `map $http_upgrade $nggm_connection_upgrade`
 - `resolver 127.0.0.11`，让 Docker 后端容器名在请求时解析
 - HTTP / gRPC 后端使用变量形式 `proxy_pass` / `grpc_pass`
-- `127.0.0.1:8443 ssl` 内部 HTTPS/H2 终止 server
+- `0.0.0.0:8443 ssl` 内部 HTTPS/H2 终止 server；stream 内部 upstream 仍回连 `127.0.0.1:8443`
 - `443 quic reuseport` HTTP/3 终止 server
 - `udp_port` 支持单值或数组，例如 `443` 或 `[443, 2053]`；额外 UDP 端口生成对应 HTTP/3 监听
 - HTTP 80 -> HTTPS 重定向 server

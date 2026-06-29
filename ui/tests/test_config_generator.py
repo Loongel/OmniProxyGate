@@ -24,7 +24,7 @@ def sample_objects():
         listen_address_mode="split",
         default_sni_action="http_termination",
         default_backend_id=None,
-        internal_http_host="127.0.0.1",
+        internal_http_host="0.0.0.0",
         internal_http_port=8443,
         enabled=True,
     )
@@ -105,10 +105,11 @@ def test_generate_supports_per_backend_proxy_protocol_and_port_arrays():
     assert "set_real_ip_from 127.0.0.1;" in generated.stream
     assert generated.stream.count("proxy_protocol on;") == 3
     assert "proxy_pass nggm_http_termination;" in generated.stream
-    assert "listen 127.0.0.1:8443 ssl proxy_protocol;" in generated.http
+    assert "listen 0.0.0.0:8443 ssl proxy_protocol;" in generated.http
     assert "set_real_ip_from 127.0.0.1;" in generated.http
     assert "real_ip_header proxy_protocol;" in generated.http
     assert "listen 0.0.0.0:2053 quic reuseport;" in generated.http
+    assert "upstream nggm_http_termination {\n    server 127.0.0.1:8443;" in generated.stream
 
 
 def write_examples():

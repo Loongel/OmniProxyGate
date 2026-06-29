@@ -57,7 +57,7 @@ def ensure_default_listener(db: Session) -> PublicListener:
         enable_http80=True,
         listen_address_mode=os.getenv("LISTEN_ADDRESS_MODE", "split"),
         default_sni_action="http_termination",
-        internal_http_host=os.getenv("INTERNAL_HTTP_HOST", "127.0.0.1"),
+        internal_http_host=os.getenv("INTERNAL_HTTP_HOST", "0.0.0.0"),
         internal_http_port=int(os.getenv("INTERNAL_HTTP_PORT", "8443")),
         enabled=True,
     )
