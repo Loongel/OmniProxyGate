@@ -58,7 +58,7 @@ If `OMNI_AGENT_API_TOKEN` is empty, token auth is disabled.
 
 Examples:
 
-- Local host port: `http://127.0.0.1:18081`
+- Local host port: `https://127.0.0.1:18081` by default, using the container self-signed certificate
 - Public HTTPS via OmniProxyGate: `https://omni.example.com`
 
 ## Safe Workflow

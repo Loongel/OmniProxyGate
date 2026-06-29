@@ -55,6 +55,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     NGINX_RELOAD_COMMAND="nginx -s reload" \
     OMNI_RUN_GATEWAY=true \
     OMNI_RUN_UI=true \
+    OMNI_UI_SCHEME=https \
     OMNI_WEB_UI_ENABLED=true
 
 RUN apt-get update \

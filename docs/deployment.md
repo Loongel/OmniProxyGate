@@ -64,13 +64,14 @@ sed -i 's#ghcr.io/OWNER/REPO:latest#ghcr.io/your-org/your-repo:latest#' .env
 docker compose --env-file .env up -d
 ```
 
-By default the compose file exposes UI/API on `127.0.0.1:${OMNI_UI_PORT:-18081}`. Put it behind OmniProxyGate/NPM/SSH tunnel if public access is needed.
+By default the compose file exposes UI/API on `https://127.0.0.1:${OMNI_UI_PORT:-18081}` with a self-signed certificate. Put it behind OmniProxyGate/NPM/SSH tunnel if public access is needed. Set `OMNI_UI_SCHEME=http` and `COOKIE_SECURE=false` only for trusted local HTTP tests or when another TLS proxy terminates in front.
 
 ## Docker Swarm Stack
 
 ```bash
 cp deploy/omni-proxygate.env.example /opt/omni-proxygate.env
 # Edit OMNI_IMAGE, OMNI_NODE_HOSTNAME, admin password/token, and ports.
+# Quote passwords containing $, !, #, spaces, or quotes because this file is sourced by a shell.
 set -a
 . /opt/omni-proxygate.env
 set +a
@@ -97,11 +98,13 @@ OMNI_AGENT_API_TOKEN=replace-with-long-token
 Then use the Agent CLI:
 
 ```bash
-export OMNI_URL=http://127.0.0.1:18081
+export OMNI_URL=https://127.0.0.1:18081
 export OMNI_AGENT_API_TOKEN=replace-with-long-token
 omni doctor
 omni status
 ```
+
+If `OMNI_UI_SCHEME=https`, use `https://127.0.0.1:18081`. Self-signed certificates may require an Agent CLI option or environment setting to skip TLS verification, depending on the client.
 
 `/api/*` and `/healthz` remain available. `/` and `/static/*` are not mounted.
 
