@@ -30,3 +30,9 @@ examples/generated/
 .DS_Store
 *.swp
 *~
+
+# Legacy source artifacts kept outside the project repository history
+/nginx-gateway-manager.zip
+/nginx_tls_http_gateway_requirements.md
+/初始进展.md
+/paseo.json

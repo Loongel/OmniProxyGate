@@ -34,11 +34,12 @@ OmniProxyGate/
 生产/单机 Compose：
 
 ```bash
-cp deploy/omni-proxygate.env.example .env
+cp .env.example .env
 # 修改 .env 里的 OMNI_IMAGE、OMNI_ADMIN_PASSWORD、OMNI_AGENT_API_TOKEN
-mkdir -p /opt/omni-proxygate/{data,nginx/conf,nginx/stream,certs,logs}
 docker compose --env-file .env up -d
 ```
+
+默认使用 Docker named volumes，不需要提前创建宿主目录。
 
 Swarm Stack：
 
@@ -85,13 +86,9 @@ GitHub Actions 会从根目录 `Dockerfile` 构建一个镜像，默认同时运
 
 Nginx 容器启动时会在 `/etc/nginx/certs/default.crt` 与 `/etc/nginx/certs/default.key` 不存在时生成一个自签名默认证书，目的是让容器能够启动和让 `nginx -t` 可运行。
 
-生产环境应将真实证书放入：
+生产环境应将真实证书放入 `omni_certs` / `omni_proxygate_certs` 这类证书卷，或通过你自己的证书同步流程写入容器内 `/etc/nginx/certs`。
 
-```text
-./data/certs
-```
-
-并在 Web UI 的“证书管理”中填入容器内路径，例如：
+在 Web UI 的“证书管理”中填入容器内路径，例如：
 
 ```text
 /etc/nginx/certs/proxy.example.com/fullchain.pem
@@ -187,8 +184,10 @@ environment:
 生成目录：
 
 ```text
-./data/nginx/stream/gateway-stream.conf
+/etc/nginx/stream.d/gateway-stream.conf
 ```
+
+默认部署样例会把该目录持久化到独立 Docker named volume。
 
 生成内容包括：
 
@@ -203,8 +202,10 @@ environment:
 生成目录：
 
 ```text
-./data/nginx/conf/gateway-http.conf
+/etc/nginx/conf.d/gateway-http.conf
 ```
+
+默认部署样例会把该目录持久化到独立 Docker named volume。
 
 生成内容包括：
 
