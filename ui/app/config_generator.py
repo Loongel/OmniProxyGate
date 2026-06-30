@@ -395,14 +395,11 @@ class NginxConfigGenerator:
     def _all_server_names(self) -> list[str]:
         names: list[str] = []
         needs_catch_all = False
-        for cert in self.certificates:
-            for domain in _split_route_values(_get(cert, "domain", None)):
-                if domain not in names:
-                    names.append(domain)
         for route in self.http_routes:
             host = _get(route, "host", None)
-            if host and host not in names:
-                names.append(host)
+            for domain in _split_route_values(host):
+                if domain not in names:
+                    names.append(domain)
             if not host or _http_route_is_default(route):
                 needs_catch_all = True
         if needs_catch_all and "_" not in names:

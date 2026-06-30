@@ -77,7 +77,7 @@ def test_generate_contains_required_blocks():
     assert "server_name proxy.example.com;" in generated.http
     assert "server_name grpc.example.com;" in generated.http
     assert "server_name combo.example.com;" in generated.http
-    assert "server_name *.apps.example.com;" in generated.http
+    assert "server_name *.apps.example.com;" not in generated.http
     assert "# Dispatcher: combo.example.com /mux by ALPN" in generated.http
     assert 'if ($ssl_alpn_protocol ~* "^h2$") { return 470; }' in generated.http
     assert 'if ($ssl_alpn_protocol ~* "^http/1\\.1$") { return 471; }' in generated.http
@@ -112,6 +112,42 @@ def test_generate_supports_per_backend_proxy_protocol_and_port_arrays():
     assert "upstream nggm_http_termination {\n    server 127.0.0.1:8443;" in generated.stream
 
 
+def test_cert_only_domains_do_not_create_http_servers():
+    listener = NS(
+        id=1,
+        name="ora01",
+        tcp_port=443,
+        udp_port=443,
+        enable_tcp_sni=True,
+        enable_http3=True,
+        enable_http80=True,
+        listen_address_mode="split",
+        default_sni_action="tls_passthrough",
+        default_backend_id=1,
+        internal_http_host="0.0.0.0",
+        internal_http_port=8443,
+        enabled=True,
+    )
+    backends = [
+        NS(id=1, name="npm", host="npm", port=8443, protocol="tcp_tls", tls_to_backend=False, send_proxy_protocol=True, keepalive=0, read_timeout=3600, send_timeout=3600, connect_timeout=5, preserve_host=True, forward_real_ip=False),
+    ]
+    certs = [
+        NS(id=1, name="npm-wildcard", domain="*.813711.xyz,*.ora1.813711.xyz", cert_path="/etc/letsencrypt/live/npm-23/cert.pem", key_path="/etc/letsencrypt/live/npm-23/privkey.pem"),
+    ]
+    sni_routes = [
+        NS(id=1, listener_id=1, name="npm-wildcards", enabled=True, sni="*.813711.xyz,*.ora1.813711.xyz", alpn=None, priority=10, action="tls_passthrough", backend_id=1),
+    ]
+
+    generated = NginxConfigGenerator(listener, sni_routes, [], backends, certs).generate()
+
+    assert "server_name *.813711.xyz;" not in generated.http
+    assert "server_name *.ora1.813711.xyz;" not in generated.http
+    assert "~^(?:(?:[^|.]+\\.)+813711\\.xyz|(?:[^|.]+\\.)+ora1\\.813711\\.xyz)\\|.*$" in generated.stream
+    assert 'set $nggm_stream_backend_backend_1 "npm:8443";' in generated.stream
+    assert "listen 127.0.0.1:19000 proxy_protocol;" in generated.stream
+    assert "proxy_pass $nggm_stream_backend_backend_1;" in generated.stream
+
+
 def write_examples():
     generated = NginxConfigGenerator(*sample_objects()).generate()
     out = ROOT.parent / "examples" / "generated"
@@ -123,6 +159,7 @@ def write_examples():
 if __name__ == "__main__":
     test_generate_contains_required_blocks()
     test_generate_supports_per_backend_proxy_protocol_and_port_arrays()
+    test_cert_only_domains_do_not_create_http_servers()
     if os.getenv("WRITE_GENERATED_EXAMPLES", "").lower() in {"1", "true", "yes", "on"}:
         write_examples()
     print("config generator tests passed")
