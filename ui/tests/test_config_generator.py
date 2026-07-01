@@ -86,7 +86,9 @@ def test_generate_contains_required_blocks():
     assert "location @nggm_http_combo_example_com_route_6 {" in generated.http
     assert "proxy_set_header Upgrade $http_upgrade;" in generated.http
     assert "proxy_request_buffering off;" in generated.http
-    assert "listen 0.0.0.0:443 quic reuseport;" in generated.http
+    assert "listen 0.0.0.0:443 quic default_server reuseport;" in generated.http
+    assert "ssl_reject_handshake on;" in generated.http
+    assert "listen 0.0.0.0:443 quic;" in generated.http
 
 
 def test_generate_supports_per_backend_proxy_protocol_and_port_arrays():
@@ -108,7 +110,7 @@ def test_generate_supports_per_backend_proxy_protocol_and_port_arrays():
     assert "listen 0.0.0.0:8443 ssl proxy_protocol;" in generated.http
     assert "set_real_ip_from 127.0.0.1;" in generated.http
     assert "real_ip_header proxy_protocol;" in generated.http
-    assert "listen 0.0.0.0:2053 quic reuseport;" in generated.http
+    assert "listen 0.0.0.0:2053 quic default_server reuseport;" in generated.http
     assert "upstream nggm_http_termination {\n    server 127.0.0.1:8443;" in generated.stream
 
 

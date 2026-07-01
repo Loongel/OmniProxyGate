@@ -165,8 +165,10 @@ def _stream_route_key_for_backend(backend: Any) -> str:
     return f"backend_{_safe_name(_get(backend, 'name', 'backend'), 'backend')}"
 
 
-def _listener_listen_lines(port: int, mode: str, *, quic: bool = False, reuseport: bool = True, stream: bool = False) -> list[str]:
+def _listener_listen_lines(port: int, mode: str, *, quic: bool = False, reuseport: bool = True, default_server: bool = False, stream: bool = False) -> list[str]:
     suffix = " quic" if quic else ""
+    if default_server:
+        suffix += " default_server"
     if quic and reuseport:
         suffix += " reuseport"
     # For repeated HTTP/3 virtual servers, socket options such as reuseport and ipv6only
@@ -629,6 +631,20 @@ class NginxConfigGenerator:
         ])
         return "\n".join(lines)
 
+    def _h3_reject_default_server_block(self, udp_port: int) -> str:
+        mode = _get(self.listener, "listen_address_mode", "split")
+        lines: list[str] = ["server {"]
+        for listen_line in _listener_listen_lines(udp_port, mode, quic=True, reuseport=True, default_server=True):
+            lines.append(f"    {listen_line}")
+        lines.extend([
+            "    server_name _;",
+            "    # Unmatched QUIC SNI must not fall into the first HTTP/3 route.",
+            "    ssl_reject_handshake on;",
+            "}",
+            "",
+        ])
+        return "\n".join(lines)
+
     def _http80_block(self) -> str:
         if not _truthy(self.listener, "enable_http80", True):
             return ""
@@ -664,8 +680,11 @@ class NginxConfigGenerator:
             lines.append(self._server_block(name, h3=False))
         if _truthy(self.listener, "enable_http3", True):
             for udp_port in self._udp_ports():
-                for idx, name in enumerate(server_names):
-                    lines.append(self._server_block(name, h3=True, h3_reuseport=(idx == 0), h3_port=udp_port))
+                lines.append(self._h3_reject_default_server_block(udp_port))
+                for name in server_names:
+                    if name == "_":
+                        continue
+                    lines.append(self._server_block(name, h3=True, h3_reuseport=False, h3_port=udp_port))
         lines.append(self._http80_block())
         if self.warnings:
             lines.extend(["", "# Generator warnings:"] + [f"# - {warning}" for warning in self.warnings])
