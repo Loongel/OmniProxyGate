@@ -195,13 +195,15 @@ def test_quic_sni_gate_reuses_http_routes_only():
         NS(id=1, listener_id=1, name="tv", enabled=True, sni="tv.ora1.example.com", alpn=None, priority=10, action="tls_passthrough", backend_id=2, allow_quic_http=True),
         NS(id=2, listener_id=1, name="blocked", enabled=True, sni="blocked.ora1.example.com", alpn=None, priority=20, action="reject", backend_id=None, allow_quic_http=True),
         NS(id=3, listener_id=1, name="tcp-only", enabled=True, sni="tcp-only.ora1.example.com", alpn=None, priority=30, action="tls_passthrough", backend_id=2, allow_quic_http=False),
-        NS(id=4, listener_id=1, name="no-route", enabled=True, sni="no-route.ora1.example.com", alpn=None, priority=40, action="tls_passthrough", backend_id=2, allow_quic_http=True),
+        NS(id=4, listener_id=1, name="no-route", enabled=True, sni="no-route.other.example.net", alpn=None, priority=40, action="tls_passthrough", backend_id=2, allow_quic_http=True),
         NS(id=5, listener_id=1, name="h2-only", enabled=True, sni="h2-only.ora1.example.com", alpn="h2", priority=50, action="http_termination", backend_id=None, allow_quic_http=True),
+        NS(id=6, listener_id=1, name="wildcard-npm", enabled=True, sni="*.ora1.example.com", alpn=None, priority=900, action="tls_passthrough", backend_id=2, allow_quic_http=True),
     ]
     http_routes = [
         NS(id=1, name="tv-h3", enabled=True, host="tv.ora1.example.com", path="/", alpn="h3", match_type="host_path_alpn", priority=10, backend_type="http", http_mode="normal", backend_id=1, is_default_fallback=False),
         NS(id=2, name="blocked-http", enabled=True, host="blocked.ora1.example.com", path="/", alpn="h3", match_type="host_path_alpn", priority=10, backend_type="http", http_mode="normal", backend_id=1, is_default_fallback=False),
-        NS(id=3, name="no-sni-http", enabled=True, host="no-sni.ora1.example.com", path="/", alpn="h3", match_type="host_path_alpn", priority=10, backend_type="http", http_mode="normal", backend_id=1, is_default_fallback=False),
+        NS(id=3, name="no-sni-http", enabled=True, host="no-sni.other.example.net", path="/", alpn="h3", match_type="host_path_alpn", priority=10, backend_type="http", http_mode="normal", backend_id=1, is_default_fallback=False),
+        NS(id=4, name="wildcard-fallback", enabled=True, host="*.ora1.example.com", path="/", alpn=None, match_type="default", priority=900, backend_type="http", http_mode="normal", backend_id=1, is_default_fallback=True),
     ]
 
     generated = NginxConfigGenerator(listener, sni_routes, http_routes, backends, certs).generate()
@@ -212,11 +214,15 @@ def test_quic_sni_gate_reuses_http_routes_only():
     assert "3xui:1443" not in generated.http
     assert "server_name blocked.ora1.example.com;\n    # SNI route rejects QUIC before any HTTP route can run." in generated.http
     assert "server_name tcp-only.ora1.example.com;\n    # SNI route rejects QUIC before any HTTP route can run." in generated.http
-    assert "server_name no-route.ora1.example.com;" in generated.http
+    assert "server_name no-route.other.example.net;" in generated.http
     assert "# QUIC SNI is allowed, but no host-specific HTTP route matches this name." in generated.http
-    assert "server_name no-sni.ora1.example.com;" in generated.http
-    assert h3_blocks_for(generated.http, "no-sni.ora1.example.com") == []
+    assert "server_name no-sni.other.example.net;" in generated.http
+    assert h3_blocks_for(generated.http, "no-sni.other.example.net") == []
     assert h3_blocks_for(generated.http, "h2-only.ora1.example.com") == []
+    wildcard_h3 = h3_blocks_for(generated.http, "*.ora1.example.com")
+    assert wildcard_h3
+    assert "proxy_pass http://$nggm_http_backend_1;" in wildcard_h3[0]
+    assert "return 444;" not in wildcard_h3[0]
 
 
 def write_examples():

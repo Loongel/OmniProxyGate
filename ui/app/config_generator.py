@@ -434,9 +434,9 @@ class NginxConfigGenerator:
 
     def _route_has_host_match_for_server(self, route: Any, server_name: str) -> bool:
         route_host = _get(route, "host", None)
-        if not route_host or _http_route_is_default(route):
+        if not route_host:
             return False
-        return self._route_applies_to_server(route, server_name)
+        return _domain_list_matches(route_host, server_name) or route_host == server_name
 
     def _has_host_http_route_for_server(self, server_name: str) -> bool:
         return any(self._route_has_host_match_for_server(route, server_name) for route in self.http_routes)
