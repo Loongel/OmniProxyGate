@@ -115,7 +115,8 @@
       "sni": "blocked.example.com",
       "alpn": null,
       "priority": 1,
-      "action": "reject"
+      "action": "reject",
+      "allow_quic_http": true
     },
     {
       "name": "proxy-any-alpn",
@@ -123,7 +124,8 @@
       "sni": "proxy.example.com",
       "alpn": null,
       "priority": 10,
-      "action": "http_termination"
+      "action": "http_termination",
+      "allow_quic_http": true
     },
     {
       "name": "grpc-h2-only",
@@ -131,7 +133,8 @@
       "sni": "grpc.example.com",
       "alpn": "h2",
       "priority": 20,
-      "action": "http_termination"
+      "action": "http_termination",
+      "allow_quic_http": true
     },
     {
       "name": "legacy-h1-only",
@@ -139,7 +142,8 @@
       "sni": "legacy.example.com",
       "alpn": "http/1.1",
       "priority": 30,
-      "action": "http_termination"
+      "action": "http_termination",
+      "allow_quic_http": true
     },
     {
       "name": "apps-wildcard-http",
@@ -147,7 +151,8 @@
       "sni": "*.apps.example.com",
       "alpn": null,
       "priority": 40,
-      "action": "http_termination"
+      "action": "http_termination",
+      "allow_quic_http": true
     },
     {
       "name": "reality-exact",
@@ -156,7 +161,8 @@
       "alpn": null,
       "priority": 50,
       "action": "tls_passthrough",
-      "backend_name": "xray-reality"
+      "backend_name": "xray-reality",
+      "allow_quic_http": false
     },
     {
       "name": "reality-wildcard",
@@ -165,7 +171,8 @@
       "alpn": null,
       "priority": 60,
       "action": "tls_passthrough",
-      "backend_name": "xray-reality"
+      "backend_name": "xray-reality",
+      "allow_quic_http": false
     }
   ],
   "http_routes": [

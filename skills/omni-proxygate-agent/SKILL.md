@@ -15,6 +15,7 @@ OmniProxyGate is an entry gateway manager. It configures Nginx stream and HTTP t
 
 - public TCP/UDP listener ports
 - stream SNI routing
+- SNI-level QUIC HTTP gate through `allow_quic_http`
 - TLS passthrough to backends such as NPM, FRPS, Xray, or 3X-UI inbound services
 - HTTP termination routes for normal HTTP, WebSocket, XHTTP/SplitHTTP streaming, and gRPC
 - backend-level `send_proxy_protocol`
@@ -97,7 +98,7 @@ omni preview --section stream       # generated stream config only
 omni preview --section http         # generated HTTP config only
 omni apply --yes                    # server-side nginx test/reload
 omni list backends                  # backend table
-omni list sni                       # SNI route table
+omni list sni                       # SNI route table, including allow_quic_http
 omni list http                      # HTTP/gRPC route table
 omni list certs                     # certificates
 omni list versions                  # config versions
@@ -145,6 +146,25 @@ omni create sni \
   --backend npm-https \
   --priority 50
 ```
+
+By default `allow_quic_http=true`. For HTTP/3/QUIC this is only an admission gate: OmniProxyGate terminates QUIC and dispatches by HTTP routes. It never forwards QUIC-terminated traffic to the TLS passthrough backend.
+
+Create a TCP-only SNI route that rejects QUIC:
+
+```bash
+omni create sni \
+  --name tcp-only \
+  --sni 'tcp-only.example.com' \
+  --action tls_passthrough \
+  --backend tcp-backend \
+  --no-allow-quic-http
+```
+
+When inspecting SNI routes, map CLI and UI fields as follows:
+
+- CLI/API `allow_quic_http=true` = Web UI `QUIC` column shows `HTTP 开`.
+- CLI/API `allow_quic_http=false` = Web UI `QUIC` column shows `HTTP 关`.
+- `allow_quic_http=true` still requires a matching Host/wildcard HTTP route for H3; otherwise generated Nginx returns `444`.
 
 Create HTTP termination entry SNI for 3X-UI gRPC and XHTTP domains:
 

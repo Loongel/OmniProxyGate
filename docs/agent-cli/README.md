@@ -151,6 +151,8 @@ omni create sni \
 
 `allow_quic_http` defaults to true. For HTTP/3/QUIC this SNI route is only a gate: QUIC is terminated by OmniProxyGate and then dispatched by HTTP routes. It is never forwarded to the TLS passthrough backend. Use `--no-allow-quic-http` to reject QUIC for a TCP-only SNI route.
 
+`omni list sni` includes the `allow_quic_http` column. In the Web UI the same state appears in the SNI table as `QUIC`: `HTTP 开` means true, `HTTP 关` means false.
+
 Create an SNI route that enters HTTP termination:
 
 ```bash
@@ -221,6 +223,7 @@ omni doctor --json
 
 - Numeric IDs are allowed but not preferred. Use backend names with create commands.
 - `omni create sni --sni a,b,c` creates one API route record. The server stores the normalized SNI list and renders it as one Nginx stream map rule.
+- `allow_quic_http=true` only allows QUIC to enter a matching Host/wildcard HTTP route. QUIC is never sent to a TLS passthrough backend. If no Host/wildcard HTTP route matches, the generated H3 server returns `444`.
 - `omni import` replaces listener, backends, certificates, SNI routes, and HTTP routes. It does not replace users, sessions, or config version history.
 - `omni apply` executes the server-side Nginx test/reload path. If apply fails, inspect output and logs before retrying.
 - `OMNI_INSECURE=true` is only for private/local tests with self-signed certificates.

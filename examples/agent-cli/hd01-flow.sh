@@ -13,8 +13,8 @@ omni create backend --name xui-panel --host 3xui --port 2053 --protocol http --s
 omni create backend --name xui-grpc --host 3xui --port 10001 --protocol grpc
 omni create backend --name xui-xhttp --host 3xui --port 10002 --protocol http --scheme http
 
-omni create sni --name npm-public --sni '*.hd1.813711.xyz' --action tls_passthrough --backend npm-https --priority 50
-omni create sni --name frps-public --sni 'frps.hd1.813711.xyz' --action tls_passthrough --backend frps-tls --priority 40
+omni create sni --name npm-public --sni '*.hd1.813711.xyz' --action tls_passthrough --backend npm-https --priority 50 --no-allow-quic-http
+omni create sni --name frps-public --sni 'frps.hd1.813711.xyz' --action tls_passthrough --backend frps-tls --priority 40 --no-allow-quic-http
 omni create sni --name xui-http-termination --sni 'grpc.hd1.813711.xyz,xhttp.hd1.813711.xyz' --action http_termination --priority 30
 
 omni create http --name xui-grpc --host grpc.hd1.813711.xyz --path /grpc --backend xui-grpc --backend-type grpc --priority 30

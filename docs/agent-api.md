@@ -87,7 +87,7 @@ Examples:
 | Certificates | `POST /api/certificates` | register certificate paths; `domain` may contain one or more comma/newline separated domains |
 | Certificates | `PUT /api/certificates/{id}` | replace certificate; `domain` may contain one or more comma/newline separated domains |
 | Certificates | `DELETE /api/certificates/{id}` | delete certificate |
-| SNI routes | `GET /api/sni-routes` | list stream SNI routes |
+| SNI routes | `GET /api/sni-routes` | list stream SNI routes; response includes `allow_quic_http` |
 | SNI routes | `POST /api/sni-routes` | create one SNI route; `sni` may contain one or more comma/newline separated domains; `allow_quic_http` defaults to true |
 | SNI routes | `PUT /api/sni-routes/{id}` | replace one SNI route; `sni` may contain one or more comma/newline separated domains; `allow_quic_http` controls whether QUIC may enter HTTP routes |
 | SNI routes | `DELETE /api/sni-routes/{id}` | delete one SNI route |
@@ -109,6 +109,7 @@ Examples:
 omni list backends
 omni create backend --name npm --host npm --port 443 --protocol http --scheme https
 omni create sni --name npm-public --sni 'example.com,*.example.com' --action tls_passthrough --backend npm
+omni create sni --name tcp-only --sni 'tcp-only.example.com' --action tls_passthrough --backend tcp-backend --no-allow-quic-http
 omni create http --name xui-grpc --host grpc.example.com --path /grpc --alpn h2 --backend xui-grpc --backend-type grpc
 omni preview --section all
 omni apply --yes

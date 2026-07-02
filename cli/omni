@@ -391,6 +391,7 @@ Examples:
   omni list backends
   omni create backend --name npm --host npm_app --port 443 --protocol http --scheme https
   omni create sni --name npm-public --sni '*.example.com,example.com' --action tls_passthrough --backend npm
+  omni create sni --name tcp-only --sni tcp-only.example.com --action tls_passthrough --backend tcp --no-allow-quic-http
   omni create http --name xui-grpc --host grpc.example.com --path /grpc --backend xui --backend-type grpc
   omni preview --section stream
   omni apply --yes
@@ -472,7 +473,7 @@ Examples:
     p.add_argument("--alpn")
     p.add_argument("--priority", type=int, default=100)
     p.add_argument("--listener-id", type=int, default=1)
-    p.add_argument("--no-allow-quic-http", action="store_true", help="reject HTTP/3/QUIC for this SNI route even when an HTTP route exists")
+    p.add_argument("--no-allow-quic-http", action="store_true", help="set allow_quic_http=false: reject HTTP/3/QUIC for this SNI route even when an HTTP route exists")
     p.add_argument("--disabled", action="store_true")
     p.set_defaults(func=cmd_create_sni)
 
