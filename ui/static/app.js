@@ -518,11 +518,11 @@ function renderSniTable() {
   const columns = [
     { key: 'ids', label: 'ID', render: r => r.ids.map(escapeHtml).join(', '), text: r => r.ids.join(' ') },
     { key: 'enabled', label: '启用', render: r => badge(r.enabled ? '启用' : '禁用', r.enabled ? 'success' : 'neutral') },
+    { key: 'allow_quic_http', label: 'QUIC', render: r => badge(r.allow_quic_http !== false ? 'HTTP 开' : 'HTTP 关', r.allow_quic_http !== false ? 'success' : 'neutral'), text: r => r.allow_quic_http !== false ? 'QUIC HTTP 开启 allow_quic_http true' : 'QUIC HTTP 关闭 allow_quic_http false' },
     { key: 'priority', label: '优先级' },
     { key: 'sni_values', label: 'SNI', render: r => `<div class="chip-list">${r.sni_values.map(v => `<span class="mini-chip">${escapeHtml(v)}</span>`).join('')}</div>`, text: r => r.sni_values.join(' ') },
     { key: 'alpn', label: 'ALPN', render: r => r.alpn ? `<div class="chip-list">${alpnValues(r.alpn).map(v => `<span class="mini-chip accent">${escapeHtml(v)}</span>`).join('')}</div>` : '<span class="muted-text">不限</span>' },
     { key: 'action', label: '动作', render: r => badge(r.action, r.action === 'reject' ? 'danger' : r.action === 'http_termination' ? 'info' : 'warning') },
-    { key: 'allow_quic_http', label: 'QUIC HTTP', render: r => badge(r.allow_quic_http !== false ? '允许' : '拒绝', r.allow_quic_http !== false ? 'success' : 'neutral') },
     { key: 'backend_id', label: '目标后端', render: r => backendSummary(r.backend_id), text: r => backendLabel(backendById(r.backend_id)) },
   ];
   const displayRows = prepareRows('sniTable', columns, rows);

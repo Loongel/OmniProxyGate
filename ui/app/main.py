@@ -59,6 +59,7 @@ def _truthy_env(name: str, default: str = "false") -> bool:
 
 
 PRODUCT_NAME = "OmniProxyGate"
+STATIC_VERSION = os.getenv("OMNI_STATIC_VERSION", "20260702-quic-state")
 WEB_UI_ENABLED = _truthy_env("OMNI_WEB_UI_ENABLED", "true")
 
 app = FastAPI(title=PRODUCT_NAME, version="1.0.0-mvp")
@@ -108,7 +109,7 @@ def on_startup() -> None:
 def index(request: Request) -> HTMLResponse:
     if not WEB_UI_ENABLED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="web UI disabled")
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("index.html", {"request": request, "static_version": STATIC_VERSION})
 
 
 @app.get("/healthz")
