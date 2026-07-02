@@ -214,6 +214,7 @@ class SniRouteIn(BaseModel):
     priority: int = 100
     action: str
     backend_id: Optional[int] = None
+    allow_quic_http: bool = True
 
     @field_validator("name")
     @classmethod

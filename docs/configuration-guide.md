@@ -76,6 +76,17 @@ SNI 规则可以独立按域名匹配，也可以和 ALPN 组合。Web UI 中 AL
 | TLS 原样透传 | `sni=reality.example.com`, `action=tls_passthrough`, `backend=xray-reality` | 不解 TLS，直接转发到后端 |
 | 拒绝指定 SNI | `sni=blocked.example.com`, `action=reject` | 转到本地 discard 端口，快速关闭 |
 
+HTTP/3 / QUIC 不走 TCP `stream ssl_preread`，因此不能把 QUIC 终止后的请求发给 `tls_passthrough` 后端。SNI 规则在 QUIC 下只做准入：
+
+| SNI 动作 | QUIC 结果 |
+| --- | --- |
+| `reject` | 直接拒绝 |
+| `http_termination` | 允许进入 HTTP route |
+| `tls_passthrough` + `allow_quic_http=true` | 只允许进入 HTTP route；不会使用透传后端 |
+| `tls_passthrough` + `allow_quic_http=false` | 拒绝 QUIC |
+
+`allow_quic_http` 默认是 `true`。如果 SNI 允许 QUIC，但没有任何 host-specific HTTP route 匹配该 SNI，生成器会为该 QUIC SNI 返回 `444`，避免落入默认站点或透传后端。
+
 示例：
 
 ```json

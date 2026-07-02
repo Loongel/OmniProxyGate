@@ -234,8 +234,8 @@ def cmd_list(args: argparse.Namespace) -> int:
     fields_by_resource = {
         "backends": ["id", "name", "host", "port", "protocol", "send_proxy_protocol"],
         "backend": ["id", "name", "host", "port", "protocol", "send_proxy_protocol"],
-        "sni": ["id", "name", "sni", "action", "backend_id", "priority", "enabled"],
-        "sni-routes": ["id", "name", "sni", "action", "backend_id", "priority", "enabled"],
+        "sni": ["id", "name", "sni", "action", "backend_id", "allow_quic_http", "priority", "enabled"],
+        "sni-routes": ["id", "name", "sni", "action", "backend_id", "allow_quic_http", "priority", "enabled"],
         "http": ["id", "name", "host", "path", "alpn", "backend_id", "backend_type", "http_mode", "priority"],
         "http-routes": ["id", "name", "host", "path", "alpn", "backend_id", "backend_type", "http_mode", "priority"],
         "certs": ["id", "name", "domain", "cert_path", "key_path"],
@@ -300,6 +300,7 @@ def cmd_create_sni(args: argparse.Namespace) -> int:
         "priority": args.priority,
         "action": args.action,
         "backend_id": backend_id,
+        "allow_quic_http": not args.no_allow_quic_http,
     }
     result = client.request("POST", "/api/sni-routes", data=payload)
     print_json(result)
@@ -471,6 +472,7 @@ Examples:
     p.add_argument("--alpn")
     p.add_argument("--priority", type=int, default=100)
     p.add_argument("--listener-id", type=int, default=1)
+    p.add_argument("--no-allow-quic-http", action="store_true", help="reject HTTP/3/QUIC for this SNI route even when an HTTP route exists")
     p.add_argument("--disabled", action="store_true")
     p.set_defaults(func=cmd_create_sni)
 

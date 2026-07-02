@@ -88,8 +88,8 @@ Examples:
 | Certificates | `PUT /api/certificates/{id}` | replace certificate; `domain` may contain one or more comma/newline separated domains |
 | Certificates | `DELETE /api/certificates/{id}` | delete certificate |
 | SNI routes | `GET /api/sni-routes` | list stream SNI routes |
-| SNI routes | `POST /api/sni-routes` | create one SNI route; `sni` may contain one or more comma/newline separated domains |
-| SNI routes | `PUT /api/sni-routes/{id}` | replace one SNI route; `sni` may contain one or more comma/newline separated domains |
+| SNI routes | `POST /api/sni-routes` | create one SNI route; `sni` may contain one or more comma/newline separated domains; `allow_quic_http` defaults to true |
+| SNI routes | `PUT /api/sni-routes/{id}` | replace one SNI route; `sni` may contain one or more comma/newline separated domains; `allow_quic_http` controls whether QUIC may enter HTTP routes |
 | SNI routes | `DELETE /api/sni-routes/{id}` | delete one SNI route |
 | HTTP routes | `GET /api/http-routes` | list HTTP/gRPC routes |
 | HTTP routes | `POST /api/http-routes` | create route; `host`, `path`, and `alpn` can be used in any 1-3 field combination |

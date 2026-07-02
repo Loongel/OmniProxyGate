@@ -98,6 +98,7 @@ class SniRoute(Base, TimestampMixin):
     priority: Mapped[int] = mapped_column(Integer, default=100)
     action: Mapped[str] = mapped_column(String(32), nullable=False)
     backend_id: Mapped[Optional[int]] = mapped_column(ForeignKey("backends.id"), nullable=True)
+    allow_quic_http: Mapped[bool] = mapped_column(Boolean, default=True)
 
     listener: Mapped[PublicListener] = relationship(back_populates="sni_routes")
     backend: Mapped[Optional[Backend]] = relationship(back_populates="sni_routes")

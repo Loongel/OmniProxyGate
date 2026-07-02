@@ -432,6 +432,66 @@ class NginxConfigGenerator:
             return _domain_list_matches(route_host, server_name) or route_host == server_name
         return False
 
+    def _route_has_host_match_for_server(self, route: Any, server_name: str) -> bool:
+        route_host = _get(route, "host", None)
+        if not route_host or _http_route_is_default(route):
+            return False
+        return self._route_applies_to_server(route, server_name)
+
+    def _has_host_http_route_for_server(self, server_name: str) -> bool:
+        return any(self._route_has_host_match_for_server(route, server_name) for route in self.http_routes)
+
+    def _sni_route_quic_applicable(self, route: Any) -> bool:
+        values = _split_route_values((_get(route, "alpn", None) or "").strip())
+        if not values:
+            return True
+        return any(value.lower().startswith("h3") for value in values)
+
+    def _quic_sni_policy_for_server(self, server_name: str) -> str:
+        for route in sorted(self.sni_routes, key=lambda r: (_get(r, "priority", 100), _get(r, "id", 0))):
+            if not self._sni_route_quic_applicable(route):
+                continue
+            if not _domain_list_matches(_get(route, "sni", ""), server_name):
+                continue
+            if _get(route, "action") == "reject" or not _truthy(route, "allow_quic_http", True):
+                return "reject"
+            return "allow"
+        return "reject"
+
+    def _quic_sni_domains(self, *, policy: str) -> list[str]:
+        names: list[str] = []
+        for route in sorted(self.sni_routes, key=lambda r: (_get(r, "priority", 100), _get(r, "id", 0))):
+            if not self._sni_route_quic_applicable(route):
+                continue
+            for domain in _split_route_values(_get(route, "sni", "")):
+                route_policy = self._quic_sni_policy_for_server(domain)
+                if route_policy == policy and domain not in names:
+                    names.append(domain)
+        return names
+
+    def _h3_http_server_names(self) -> list[str]:
+        names: list[str] = []
+        for name in self._all_server_names():
+            if name == "_":
+                continue
+            if self._quic_sni_policy_for_server(name) != "allow":
+                continue
+            if not self._has_host_http_route_for_server(name):
+                continue
+            if name not in names:
+                names.append(name)
+        return names
+
+    def _h3_no_route_server_names(self, http_server_names: list[str], reject_server_names: list[str]) -> list[str]:
+        names: list[str] = []
+        for name in self._quic_sni_domains(policy="allow"):
+            if name in http_server_names or name in reject_server_names:
+                continue
+            if self._has_host_http_route_for_server(name):
+                continue
+            names.append(name)
+        return names
+
     def _render_location(self, route: Any, location_name: Optional[str] = None) -> list[str]:
         backend = self.backends.get(_get(route, "backend_id"))
         if backend is None:
@@ -645,6 +705,46 @@ class NginxConfigGenerator:
         ])
         return "\n".join(lines)
 
+    def _h3_reject_sni_server_block(self, server_name: str, udp_port: int) -> str:
+        mode = _get(self.listener, "listen_address_mode", "split")
+        lines: list[str] = ["server {"]
+        for listen_line in _listener_listen_lines(udp_port, mode, quic=True, reuseport=False):
+            lines.append(f"    {listen_line}")
+        lines.extend([
+            f"    server_name {_nginx_server_name(server_name)};",
+            "    # SNI route rejects QUIC before any HTTP route can run.",
+            "    ssl_reject_handshake on;",
+            "}",
+            "",
+        ])
+        return "\n".join(lines)
+
+    def _h3_no_route_server_block(self, server_name: str, udp_port: int) -> str:
+        cert = self._cert_for_host(server_name)
+        cert_path = _get(cert, "cert_path", "/etc/nginx/certs/default.crt") if cert else "/etc/nginx/certs/default.crt"
+        key_path = _get(cert, "key_path", "/etc/nginx/certs/default.key") if cert else "/etc/nginx/certs/default.key"
+        mode = _get(self.listener, "listen_address_mode", "split")
+        lines: list[str] = ["server {"]
+        for listen_line in _listener_listen_lines(udp_port, mode, quic=True, reuseport=False):
+            lines.append(f"    {listen_line}")
+        lines.extend([
+            "    http3 on;",
+            "    quic_retry on;",
+            f"    server_name {_nginx_server_name(server_name)};",
+            f"    ssl_certificate {cert_path};",
+            f"    ssl_certificate_key {key_path};",
+            "    ssl_protocols TLSv1.2 TLSv1.3;",
+            "    server_tokens off;",
+            "",
+            "    # QUIC SNI is allowed, but no host-specific HTTP route matches this name.",
+            "    location / {",
+            "        return 444;",
+            "    }",
+            "}",
+            "",
+        ])
+        return "\n".join(lines)
+
     def _http80_block(self) -> str:
         if not _truthy(self.listener, "enable_http80", True):
             return ""
@@ -679,11 +779,16 @@ class NginxConfigGenerator:
         for name in server_names:
             lines.append(self._server_block(name, h3=False))
         if _truthy(self.listener, "enable_http3", True):
+            h3_server_names = self._h3_http_server_names()
+            h3_reject_names = self._quic_sni_domains(policy="reject")
+            h3_no_route_names = self._h3_no_route_server_names(h3_server_names, h3_reject_names)
             for udp_port in self._udp_ports():
                 lines.append(self._h3_reject_default_server_block(udp_port))
-                for name in server_names:
-                    if name == "_":
-                        continue
+                for name in h3_reject_names:
+                    lines.append(self._h3_reject_sni_server_block(name, udp_port))
+                for name in h3_no_route_names:
+                    lines.append(self._h3_no_route_server_block(name, udp_port))
+                for name in h3_server_names:
                     lines.append(self._server_block(name, h3=True, h3_reuseport=False, h3_port=udp_port))
         lines.append(self._http80_block())
         if self.warnings:

@@ -224,6 +224,7 @@ function resetForm(id) {
   }
   if (id === 'sniForm') {
     form.elements.enabled.checked = true;
+    form.elements.allow_quic_http.checked = true;
     form.elements.priority.value = 100;
     form.elements.alpn.value = '';
     syncAlpnChips(form);
@@ -500,7 +501,7 @@ function renderCertTable() {
 function groupSniRoutes() {
   const groups = new Map();
   state.sni.forEach(row => {
-    const key = [row.enabled, row.priority, row.alpn || '', row.action, row.backend_id || ''].join('|');
+    const key = [row.enabled, row.priority, row.alpn || '', row.action, row.backend_id || '', row.allow_quic_http !== false].join('|');
     if (!groups.has(key)) groups.set(key, { ...row, ids: [], names: [], sni_values: [] });
     const group = groups.get(key);
     group.ids.push(row.id);
@@ -521,6 +522,7 @@ function renderSniTable() {
     { key: 'sni_values', label: 'SNI', render: r => `<div class="chip-list">${r.sni_values.map(v => `<span class="mini-chip">${escapeHtml(v)}</span>`).join('')}</div>`, text: r => r.sni_values.join(' ') },
     { key: 'alpn', label: 'ALPN', render: r => r.alpn ? `<div class="chip-list">${alpnValues(r.alpn).map(v => `<span class="mini-chip accent">${escapeHtml(v)}</span>`).join('')}</div>` : '<span class="muted-text">不限</span>' },
     { key: 'action', label: '动作', render: r => badge(r.action, r.action === 'reject' ? 'danger' : r.action === 'http_termination' ? 'info' : 'warning') },
+    { key: 'allow_quic_http', label: 'QUIC HTTP', render: r => badge(r.allow_quic_http !== false ? '允许' : '拒绝', r.allow_quic_http !== false ? 'success' : 'neutral') },
     { key: 'backend_id', label: '目标后端', render: r => backendSummary(r.backend_id), text: r => backendLabel(backendById(r.backend_id)) },
   ];
   const displayRows = prepareRows('sniTable', columns, rows);

@@ -382,7 +382,7 @@ def _export_bundle(db: Session) -> dict:
             for item in db.execute(select(Certificate).order_by(Certificate.id.asc())).scalars()
         ],
         "sni_routes": [
-            _dump_item(item, ["id", "listener_id", "name", "enabled", "sni", "alpn", "priority", "action", "backend_id"])
+            _dump_item(item, ["id", "listener_id", "name", "enabled", "sni", "alpn", "priority", "action", "backend_id", "allow_quic_http"])
             for item in db.execute(select(SniRoute).order_by(SniRoute.priority.asc(), SniRoute.id.asc())).scalars()
         ],
         "http_routes": [

@@ -12,6 +12,20 @@ if str(ROOT) not in sys.path:
 from app.config_generator import NginxConfigGenerator
 
 
+def server_blocks(config: str) -> list[str]:
+    blocks = []
+    for chunk in config.split("\nserver {"):
+        block = chunk if chunk.startswith("server {") else f"server {{{chunk}"
+        if "server {" in block and "server_name " in block:
+            blocks.append(block)
+    return blocks
+
+
+def h3_blocks_for(config: str, server_name: str) -> list[str]:
+    marker = f"server_name {server_name};"
+    return [block for block in server_blocks(config) if marker in block and " quic" in block]
+
+
 def sample_objects():
     listener = NS(
         id=1,
@@ -77,7 +91,8 @@ def test_generate_contains_required_blocks():
     assert "server_name proxy.example.com;" in generated.http
     assert "server_name grpc.example.com;" in generated.http
     assert "server_name combo.example.com;" in generated.http
-    assert "server_name *.apps.example.com;" not in generated.http
+    assert "server_name *.apps.example.com;" in generated.http
+    assert "# QUIC SNI is allowed, but no host-specific HTTP route matches this name." in generated.http
     assert "# Dispatcher: combo.example.com /mux by ALPN" in generated.http
     assert 'if ($ssl_alpn_protocol ~* "^h2$") { return 470; }' in generated.http
     assert 'if ($ssl_alpn_protocol ~* "^http/1\\.1$") { return 471; }' in generated.http
@@ -142,12 +157,66 @@ def test_cert_only_domains_do_not_create_http_servers():
 
     generated = NginxConfigGenerator(listener, sni_routes, [], backends, certs).generate()
 
-    assert "server_name *.813711.xyz;" not in generated.http
-    assert "server_name *.ora1.813711.xyz;" not in generated.http
+    assert "listen 0.0.0.0:8443 ssl proxy_protocol;\n    set_real_ip_from 127.0.0.1;\n    real_ip_header proxy_protocol;\n    http2 on;\n    server_name *.813711.xyz;" not in generated.http
+    assert "listen 0.0.0.0:8443 ssl proxy_protocol;\n    set_real_ip_from 127.0.0.1;\n    real_ip_header proxy_protocol;\n    http2 on;\n    server_name *.ora1.813711.xyz;" not in generated.http
+    assert "server_name *.813711.xyz;" in generated.http
+    assert "server_name *.ora1.813711.xyz;" in generated.http
+    assert "        return 444;" in generated.http
     assert "~^(?:(?:[^|.]+\\.)+813711\\.xyz|(?:[^|.]+\\.)+ora1\\.813711\\.xyz)\\|.*$" in generated.stream
     assert 'set $nggm_stream_backend_backend_1 "npm:8443";' in generated.stream
     assert "listen 127.0.0.1:19000 proxy_protocol;" in generated.stream
     assert "proxy_pass $nggm_stream_backend_backend_1;" in generated.stream
+
+
+def test_quic_sni_gate_reuses_http_routes_only():
+    listener = NS(
+        id=1,
+        name="default",
+        tcp_port=443,
+        udp_port=443,
+        enable_tcp_sni=True,
+        enable_http3=True,
+        enable_http80=False,
+        listen_address_mode="split",
+        default_sni_action="reject",
+        default_backend_id=None,
+        internal_http_host="0.0.0.0",
+        internal_http_port=8443,
+        enabled=True,
+    )
+    backends = [
+        NS(id=1, name="tv-http", host="libretv", port=80, protocol="http", tls_to_backend=False, send_proxy_protocol=False, keepalive=32, read_timeout=300, send_timeout=300, connect_timeout=30, preserve_host=True, forward_real_ip=True),
+        NS(id=2, name="tv-tcp", host="3xui", port=1443, protocol="tcp_tls", tls_to_backend=True, send_proxy_protocol=True, keepalive=0, read_timeout=3600, send_timeout=3600, connect_timeout=5, preserve_host=True, forward_real_ip=False),
+    ]
+    certs = [
+        NS(id=1, name="wildcard", domain="*.ora1.example.com", cert_path="/cert.pem", key_path="/key.pem"),
+    ]
+    sni_routes = [
+        NS(id=1, listener_id=1, name="tv", enabled=True, sni="tv.ora1.example.com", alpn=None, priority=10, action="tls_passthrough", backend_id=2, allow_quic_http=True),
+        NS(id=2, listener_id=1, name="blocked", enabled=True, sni="blocked.ora1.example.com", alpn=None, priority=20, action="reject", backend_id=None, allow_quic_http=True),
+        NS(id=3, listener_id=1, name="tcp-only", enabled=True, sni="tcp-only.ora1.example.com", alpn=None, priority=30, action="tls_passthrough", backend_id=2, allow_quic_http=False),
+        NS(id=4, listener_id=1, name="no-route", enabled=True, sni="no-route.ora1.example.com", alpn=None, priority=40, action="tls_passthrough", backend_id=2, allow_quic_http=True),
+        NS(id=5, listener_id=1, name="h2-only", enabled=True, sni="h2-only.ora1.example.com", alpn="h2", priority=50, action="http_termination", backend_id=None, allow_quic_http=True),
+    ]
+    http_routes = [
+        NS(id=1, name="tv-h3", enabled=True, host="tv.ora1.example.com", path="/", alpn="h3", match_type="host_path_alpn", priority=10, backend_type="http", http_mode="normal", backend_id=1, is_default_fallback=False),
+        NS(id=2, name="blocked-http", enabled=True, host="blocked.ora1.example.com", path="/", alpn="h3", match_type="host_path_alpn", priority=10, backend_type="http", http_mode="normal", backend_id=1, is_default_fallback=False),
+        NS(id=3, name="no-sni-http", enabled=True, host="no-sni.ora1.example.com", path="/", alpn="h3", match_type="host_path_alpn", priority=10, backend_type="http", http_mode="normal", backend_id=1, is_default_fallback=False),
+    ]
+
+    generated = NginxConfigGenerator(listener, sni_routes, http_routes, backends, certs).generate()
+
+    assert "server_name tv.ora1.example.com;" in generated.http
+    assert "proxy_pass http://$nggm_http_backend_1;" in generated.http
+    assert "3xui:1443" in generated.stream
+    assert "3xui:1443" not in generated.http
+    assert "server_name blocked.ora1.example.com;\n    # SNI route rejects QUIC before any HTTP route can run." in generated.http
+    assert "server_name tcp-only.ora1.example.com;\n    # SNI route rejects QUIC before any HTTP route can run." in generated.http
+    assert "server_name no-route.ora1.example.com;" in generated.http
+    assert "# QUIC SNI is allowed, but no host-specific HTTP route matches this name." in generated.http
+    assert "server_name no-sni.ora1.example.com;" in generated.http
+    assert h3_blocks_for(generated.http, "no-sni.ora1.example.com") == []
+    assert h3_blocks_for(generated.http, "h2-only.ora1.example.com") == []
 
 
 def write_examples():
@@ -162,6 +231,7 @@ if __name__ == "__main__":
     test_generate_contains_required_blocks()
     test_generate_supports_per_backend_proxy_protocol_and_port_arrays()
     test_cert_only_domains_do_not_create_http_servers()
+    test_quic_sni_gate_reuses_http_routes_only()
     if os.getenv("WRITE_GENERATED_EXAMPLES", "").lower() in {"1", "true", "yes", "on"}:
         write_examples()
     print("config generator tests passed")

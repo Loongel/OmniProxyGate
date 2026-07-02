@@ -149,6 +149,8 @@ omni create sni \
   --priority 50
 ```
 
+`allow_quic_http` defaults to true. For HTTP/3/QUIC this SNI route is only a gate: QUIC is terminated by OmniProxyGate and then dispatched by HTTP routes. It is never forwarded to the TLS passthrough backend. Use `--no-allow-quic-http` to reject QUIC for a TCP-only SNI route.
+
 Create an SNI route that enters HTTP termination:
 
 ```bash

@@ -35,6 +35,10 @@ def _ensure_schema_columns() -> None:
         columns = {column["name"] for column in inspector.get_columns("http_routes")}
         if "alpn" not in columns:
             statements.append("ALTER TABLE http_routes ADD COLUMN alpn VARCHAR(128)")
+    if "sni_routes" in tables:
+        columns = {column["name"] for column in inspector.get_columns("sni_routes")}
+        if "allow_quic_http" not in columns:
+            statements.append("ALTER TABLE sni_routes ADD COLUMN allow_quic_http BOOLEAN DEFAULT 1 NOT NULL")
     if not statements:
         return
     with engine.begin() as conn:
